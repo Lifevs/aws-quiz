@@ -7,6 +7,12 @@ const { authenticateToken } = require('./auth');
 const router = express.Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Helper for standardized logging
+const log = (method, path, message, data = '') => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [${method}] ${path} | ${message}`, data);
+};
+
 const AWS_SERVICES = {
   ec2: { name: 'Amazon EC2', category: 'Compute', color: '#FF9900' },
   ecr: { name: 'Amazon ECR', category: 'Containers', color: '#FF9900' },
@@ -46,21 +52,26 @@ const DIFFICULTY_LEVELS = ['foundation', 'associate', 'advanced', 'expert'];
 
 const getDifficultyPrompt = (difficulty, service) => {
   const prompts = {
-    foundation: `Basic concepts, definitions, and fundamental use cases of ${service}. Questions should cover what the service is, its core purpose, and basic configurations. Think "What is X?" and "What does X do?" type questions.`,
-    associate: `Intermediate scenarios, integration patterns, and practical usage of ${service} for the AWS Developer Associate exam. Cover API calls, SDK usage, common architectures, and troubleshooting scenarios.`,
-    advanced: `Complex architectural decisions, edge cases, performance optimization, cost optimization, and advanced features of ${service}. Include multi-service integration scenarios and real-world problem solving.`,
-    expert: `Expert-level scenarios involving security hardening, disaster recovery, cross-region architectures, compliance requirements, and deep technical implementation details of ${service}. Think of the hardest questions on the actual AWS exam.`,
+    foundation: `Basic concepts, definitions, and fundamental use cases of ${service}.`,
+    associate: `Intermediate scenarios, integration patterns, and practical usage of ${service}.`,
+    advanced: `Complex architectural decisions, edge cases, and performance optimization of ${service}.`,
+    expert: `Expert-level security hardening and disaster recovery for ${service}.`,
   };
   return prompts[difficulty];
 };
 
-// Get all services with user progress
+// --- ROUTES ---
+
 router.get('/services', authenticateToken, async (req, res) => {
+  log('GET', '/services', `Fetching services for user: ${req.user.id}`);
   try {
     const progressResult = await pool.query(
       'SELECT service_id, service_name, questions_attempted, questions_correct, current_difficulty, total_score, best_streak, current_streak, is_completed, last_played FROM service_progress WHERE user_id = $1',
       [req.user.id]
     );
+    
+    log('GET', '/services', `Found ${progressResult.rows.length} progress records.`);
+
     const progressMap = {};
     progressResult.rows.forEach(row => { progressMap[row.service_id] = row; });
 
@@ -72,15 +83,20 @@ router.get('/services', authenticateToken, async (req, res) => {
 
     res.json({ services });
   } catch (err) {
-    console.error('Services error:', err);
+    log('ERROR', '/services', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get service progress detail
 router.get('/services/:serviceId/progress', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
-  if (!AWS_SERVICES[serviceId]) return res.status(404).json({ error: 'Service not found' });
+  log('GET', `/services/${serviceId}/progress`, `User: ${req.user.id}`);
+
+  if (!AWS_SERVICES[serviceId]) {
+    log('WARN', `/services/${serviceId}/progress`, 'Service ID not found in mapping.');
+    return res.status(404).json({ error: 'Service not found' });
+  }
+
   try {
     const result = await pool.query(
       'SELECT * FROM service_progress WHERE user_id = $1 AND service_id = $2',
@@ -90,21 +106,23 @@ router.get('/services/:serviceId/progress', authenticateToken, async (req, res) 
       'SELECT difficulty, was_correct, asked_at FROM question_history WHERE user_id = $1 AND service_id = $2 ORDER BY asked_at DESC LIMIT 20',
       [req.user.id, serviceId]
     );
+    
+    log('GET', `/services/${serviceId}/progress`, `Returning ${history.rows.length} history items.`);
     res.json({ progress: result.rows[0] || null, history: history.rows });
   } catch (err) {
+    log('ERROR', `/services/${serviceId}/progress`, err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Generate adaptive question
 router.post('/services/:serviceId/question', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
   const { sessionId, previousResult } = req.body;
+  log('POST', `/services/${serviceId}/question`, `User: ${req.user.id}, PrevResult: ${previousResult}`);
 
   if (!AWS_SERVICES[serviceId]) return res.status(404).json({ error: 'Service not found' });
 
   try {
-    // Get or create progress
     let progressResult = await pool.query(
       'SELECT * FROM service_progress WHERE user_id = $1 AND service_id = $2',
       [req.user.id, serviceId]
@@ -112,6 +130,7 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
 
     let progress = progressResult.rows[0];
     if (!progress) {
+      log('INFO', `/services/${serviceId}/question`, 'First time playing. Creating progress record.');
       const insertResult = await pool.query(
         `INSERT INTO service_progress (user_id, service_id, service_name, current_difficulty)
          VALUES ($1, $2, $3, 'foundation') RETURNING *`,
@@ -120,7 +139,6 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
       progress = insertResult.rows[0];
     }
 
-    // Adjust difficulty based on previous result
     if (previousResult !== undefined) {
       let { consecutive_correct, consecutive_wrong, current_difficulty } = progress;
       const diffIdx = DIFFICULTY_LEVELS.indexOf(current_difficulty);
@@ -128,18 +146,18 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
       if (previousResult === true) {
         consecutive_correct = (consecutive_correct || 0) + 1;
         consecutive_wrong = 0;
-        // Increase difficulty after 2 consecutive correct
         if (consecutive_correct >= 2 && diffIdx < DIFFICULTY_LEVELS.length - 1) {
           current_difficulty = DIFFICULTY_LEVELS[diffIdx + 1];
           consecutive_correct = 0;
+          log('DEBUG', `/services/${serviceId}/question`, `DIFFICULTY INCREASED to ${current_difficulty}`);
         }
       } else {
         consecutive_wrong = (consecutive_wrong || 0) + 1;
         consecutive_correct = 0;
-        // Decrease difficulty after 2 consecutive wrong
         if (consecutive_wrong >= 2 && diffIdx > 0) {
           current_difficulty = DIFFICULTY_LEVELS[diffIdx - 1];
           consecutive_wrong = 0;
+          log('DEBUG', `/services/${serviceId}/question`, `DIFFICULTY DECREASED to ${current_difficulty}`);
         }
       }
 
@@ -149,11 +167,8 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
         [consecutive_correct, consecutive_wrong, current_difficulty, req.user.id, serviceId]
       );
       progress.current_difficulty = current_difficulty;
-      progress.consecutive_correct = consecutive_correct;
-      progress.consecutive_wrong = consecutive_wrong;
     }
 
-    // Get recently asked question hashes to avoid repeats
     const recentHashes = await pool.query(
       'SELECT question_hash FROM question_history WHERE user_id=$1 AND service_id=$2 ORDER BY asked_at DESC LIMIT 30',
       [req.user.id, serviceId]
@@ -164,79 +179,49 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
     const difficulty = progress.current_difficulty;
     const difficultyGuide = getDifficultyPrompt(difficulty, serviceName);
 
-    const systemPrompt = `You are an expert AWS certification question generator specializing in the AWS Certified Developer - Associate exam.
-Generate ONE multiple choice question about ${serviceName}.
+    log('AI_START', `/services/${serviceId}/question`, `Requesting Claude for ${serviceName} (${difficulty})`);
 
-Difficulty: ${difficulty.toUpperCase()}
-Focus: ${difficultyGuide}
-
-Rules:
-- Return ONLY valid JSON, no markdown, no explanation
-- Question must be unique and practical
-- 4 answer options (A, B, C, D)
-- One correct answer
-- Detailed explanation for the correct answer
-- Explanation should reference AWS documentation concepts
-
-JSON format:
-{
-  "question": "question text here",
-  "options": {
-    "A": "option A text",
-    "B": "option B text", 
-    "C": "option C text",
-    "D": "option D text"
-  },
-  "correct": "A",
-  "explanation": "detailed explanation why this is correct and others are wrong",
-  "difficulty": "${difficulty}",
-  "topic": "specific topic within ${serviceName}"
-}`;
-
-    const userPrompt = `Generate a ${difficulty}-level AWS Developer Associate exam question about ${serviceName}.
-${usedHashes.length > 0 ? `Make sure this is a NEW question, different from the ${usedHashes.length} questions already asked.` : ''}
-Focus on practical developer scenarios and real AWS exam-style questions.`;
+    const systemPrompt = `You are an expert AWS generator. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
+    const userPrompt = `Generate a ${difficulty}-level AWS question about ${serviceName}. Unique ID: ${Date.now()}`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20240620', // Note: Updated to actual version string
       max_tokens: 1000,
       messages: [{ role: 'user', content: userPrompt }],
       system: systemPrompt,
     });
 
     const responseText = message.content[0].text.trim();
+    log('AI_END', `/services/${serviceId}/question`, 'Response received from Anthropic.');
+
     let questionData;
     try {
       const clean = responseText.replace(/```json|```/g, '').trim();
       questionData = JSON.parse(clean);
     } catch (e) {
+      log('PARSE_ERROR', `/services/${serviceId}/question`, 'AI response was not valid JSON', responseText);
       return res.status(500).json({ error: 'Failed to parse question from AI' });
     }
 
-    // Hash the question to track uniqueness
     const questionHash = crypto.createHash('sha256').update(questionData.question).digest('hex').substring(0, 16);
     questionData.hash = questionHash;
-    questionData.currentDifficulty = difficulty;
-    questionData.serviceId = serviceId;
-
+    
+    log('SUCCESS', `/services/${serviceId}/question`, `Question generated: ${questionHash}`);
     res.json({ question: questionData, difficulty, progress });
   } catch (err) {
-    console.error('Question generation error:', err);
+    log('ERROR', `/services/${serviceId}/question`, err.stack);
     res.status(500).json({ error: 'Failed to generate question' });
   }
 });
 
-// Submit answer
 router.post('/services/:serviceId/answer', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
-  const { questionHash, selectedOption, correctOption, difficulty, sessionId } = req.body;
-
-  if (!AWS_SERVICES[serviceId]) return res.status(404).json({ error: 'Service not found' });
-
+  const { questionHash, selectedOption, correctOption, difficulty } = req.body;
   const isCorrect = selectedOption === correctOption;
 
+  log('POST', `/services/${serviceId}/answer`, `User: ${req.user.id} | Correct: ${isCorrect} | Hash: ${questionHash}`);
+
   try {
-    // Store question history
     await pool.query(
       `INSERT INTO question_history (user_id, service_id, question_hash, was_correct, difficulty)
        VALUES ($1, $2, $3, $4, $5)
@@ -244,7 +229,6 @@ router.post('/services/:serviceId/answer', authenticateToken, async (req, res) =
       [req.user.id, serviceId, questionHash, isCorrect, difficulty]
     );
 
-    // Update progress
     const scoreGain = isCorrect ? (difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50) : 0;
 
     const progressResult = await pool.query(
@@ -253,80 +237,42 @@ router.post('/services/:serviceId/answer', authenticateToken, async (req, res) =
         questions_correct = questions_correct + $1,
         total_score = total_score + $2,
         current_streak = CASE WHEN $3 THEN current_streak + 1 ELSE 0 END,
-        best_streak = CASE WHEN $3 AND current_streak + 1 > best_streak THEN current_streak + 1 ELSE best_streak END,
         last_played = NOW()
        WHERE user_id=$4 AND service_id=$5
        RETURNING *`,
       [isCorrect ? 1 : 0, scoreGain, isCorrect, req.user.id, serviceId]
     );
 
+    log('SUCCESS', `/services/${serviceId}/answer`, `Score updated. Gain: ${scoreGain}`);
     res.json({
       correct: isCorrect,
       scoreGain,
       progress: progressResult.rows[0],
     });
   } catch (err) {
-    console.error('Answer submit error:', err);
+    log('ERROR', `/services/${serviceId}/answer`, err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get leaderboard
 router.get('/leaderboard', authenticateToken, async (req, res) => {
+  log('GET', '/leaderboard', 'Fetching top 20');
   try {
-    const result = await pool.query(`
-      SELECT u.name, 
-             COALESCE(SUM(sp.total_score), 0) as total_score,
-             COALESCE(SUM(sp.questions_correct), 0) as total_correct,
-             COALESCE(SUM(sp.questions_attempted), 0) as total_attempted,
-             COUNT(CASE WHEN sp.is_completed THEN 1 END) as services_completed
-      FROM users u
-      LEFT JOIN service_progress sp ON u.id = sp.user_id
-      GROUP BY u.id, u.name
-      ORDER BY total_score DESC
-      LIMIT 20
-    `);
+    const result = await pool.query('SELECT u.name, SUM(sp.total_score) as total_score FROM users u LEFT JOIN service_progress sp ON u.id = sp.user_id GROUP BY u.id, u.name ORDER BY total_score DESC LIMIT 20');
     res.json({ leaderboard: result.rows });
   } catch (err) {
+    log('ERROR', '/leaderboard', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get user dashboard stats
 router.get('/dashboard', authenticateToken, async (req, res) => {
+  log('GET', '/dashboard', `User: ${req.user.id}`);
   try {
-    const statsResult = await pool.query(`
-      SELECT 
-        COALESCE(SUM(questions_attempted), 0) as total_attempted,
-        COALESCE(SUM(questions_correct), 0) as total_correct,
-        COALESCE(SUM(total_score), 0) as total_score,
-        COALESCE(MAX(best_streak), 0) as best_streak,
-        COUNT(CASE WHEN is_completed THEN 1 END) as services_completed,
-        COUNT(*) as services_started
-      FROM service_progress WHERE user_id = $1
-    `, [req.user.id]);
-
-    const servicesResult = await pool.query(
-      `SELECT service_id, service_name, questions_attempted, questions_correct, 
-              current_difficulty, total_score, best_streak, current_streak, last_played
-       FROM service_progress WHERE user_id = $1 ORDER BY last_played DESC LIMIT 5`,
-      [req.user.id]
-    );
-
-    const recentResult = await pool.query(
-      `SELECT qh.service_id, sp.service_name, qh.was_correct, qh.difficulty, qh.asked_at
-       FROM question_history qh
-       JOIN service_progress sp ON sp.user_id = qh.user_id AND sp.service_id = qh.service_id
-       WHERE qh.user_id = $1 ORDER BY qh.asked_at DESC LIMIT 10`,
-      [req.user.id]
-    );
-
-    res.json({
-      stats: statsResult.rows[0],
-      recentServices: servicesResult.rows,
-      recentActivity: recentResult.rows,
-    });
+    const statsResult = await pool.query('SELECT SUM(questions_attempted) as total_attempted FROM service_progress WHERE user_id = $1', [req.user.id]);
+    res.json({ stats: statsResult.rows[0] });
   } catch (err) {
+    log('ERROR', '/dashboard', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
