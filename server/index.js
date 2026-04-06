@@ -54,14 +54,18 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Init DB and start server
-initDB()
-  .then(() => {
+(async () => {
+  try {
+    console.log('Starting DB init...');
+    await initDB();
+    console.log('DB init done, starting server...');
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV}`);
     });
-  })
-  .catch((err) => {
-    console.error('Failed to initialize DB:', err);
+  } catch (err) {
+    console.error('❌ Fatal startup error:', err);
     process.exit(1);
-  });
+  }
+})();
