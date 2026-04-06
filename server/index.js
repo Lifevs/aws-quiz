@@ -1,3 +1,4 @@
+// server/index.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -55,32 +56,12 @@ if (process.env.NODE_ENV === 'production') {
 // Init DB and start server
 initDB()
   .then(() => {
-   // server/db.js
-require('dotenv').config();
-const { Pool } = require('pg');
-
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set');
-}
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false, // required for Render-managed Postgres
-  },
-});
-
-async function initDB() {
-  try {
-    await pool.query('SELECT 1');
-    console.log('✅ DB connected successfully');
-  } catch (err) {
-    console.error('❌ Failed to initialize DB:', err);
-    throw err;
-  }
-}
-
-module.exports = { pool, initDB };
-
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+    });
   })
-  
+  .catch((err) => {
+    console.error('Failed to initialize DB:', err);
+    process.exit(1);
+  });
