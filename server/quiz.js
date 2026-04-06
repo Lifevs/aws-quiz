@@ -1,11 +1,13 @@
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
+const Groq = require('groq-sdk'); // Switched to Groq
 const crypto = require('crypto');
 const { pool } = require('./db');
 const { authenticateToken } = require('./auth');
 
 const router = express.Router();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Initialize Groq
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Helper for standardized logging
 const log = (method, path, message, data = '') => {
@@ -117,7 +119,7 @@ router.get('/services/:serviceId/progress', authenticateToken, async (req, res) 
 
 router.post('/services/:serviceId/question', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
-  const { sessionId, previousResult } = req.body;
+  const { previousResult } = req.body;
   log('POST', `/services/${serviceId}/question`, `User: ${req.user.id}, PrevResult: ${previousResult}`);
 
   if (!AWS_SERVICES[serviceId]) return res.status(404).json({ error: 'Service not found' });
@@ -179,25 +181,28 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
     const difficulty = progress.current_difficulty;
     const difficultyGuide = getDifficultyPrompt(difficulty, serviceName);
 
-    log('AI_START', `/services/${serviceId}/question`, `Requesting Claude for ${serviceName} (${difficulty})`);
+    log('AI_START', `/services/${serviceId}/question`, `Requesting Groq for ${serviceName} (${difficulty})`);
 
     const systemPrompt = `You are an expert AWS generator. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
     const userPrompt = `Generate a ${difficulty}-level AWS question about ${serviceName}. Unique ID: ${Date.now()}`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20240620', // Note: Updated to actual version string
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: userPrompt }],
-      system: systemPrompt,
+    // GROQ API CALL
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" }, // Ensures valid JSON
+      temperature: 0.7,
     });
 
-    const responseText = message.content[0].text.trim();
-    log('AI_END', `/services/${serviceId}/question`, 'Response received from Anthropic.');
+    const responseText = completion.choices[0]?.message?.content || "";
+    log('AI_END', `/services/${serviceId}/question`, 'Response received from Groq.');
 
     let questionData;
     try {
-      const clean = responseText.replace(/```json|```/g, '').trim();
-      questionData = JSON.parse(clean);
+      questionData = JSON.parse(responseText);
     } catch (e) {
       log('PARSE_ERROR', `/services/${serviceId}/question`, 'AI response was not valid JSON', responseText);
       return res.status(500).json({ error: 'Failed to parse question from AI' });
@@ -205,6 +210,8 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
 
     const questionHash = crypto.createHash('sha256').update(questionData.question).digest('hex').substring(0, 16);
     questionData.hash = questionHash;
+    questionData.currentDifficulty = difficulty;
+    questionData.serviceId = serviceId;
     
     log('SUCCESS', `/services/${serviceId}/question`, `Question generated: ${questionHash}`);
     res.json({ question: questionData, difficulty, progress });
@@ -237,6 +244,7 @@ router.post('/services/:serviceId/answer', authenticateToken, async (req, res) =
         questions_correct = questions_correct + $1,
         total_score = total_score + $2,
         current_streak = CASE WHEN $3 THEN current_streak + 1 ELSE 0 END,
+        best_streak = CASE WHEN $3 AND current_streak + 1 > best_streak THEN current_streak + 1 ELSE best_streak END,
         last_played = NOW()
        WHERE user_id=$4 AND service_id=$5
        RETURNING *`,
@@ -277,4 +285,4 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = router;   
