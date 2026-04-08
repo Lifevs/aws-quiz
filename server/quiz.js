@@ -277,8 +277,40 @@ router.get('/leaderboard', authenticateToken, async (req, res) => {
 router.get('/dashboard', authenticateToken, async (req, res) => {
   log('GET', '/dashboard', `User: ${req.user.id}`);
   try {
-    const statsResult = await pool.query('SELECT SUM(questions_attempted) as total_attempted FROM service_progress WHERE user_id = $1', [req.user.id]);
-    res.json({ stats: statsResult.rows[0] });
+    // Aggregate stats from service_progress
+    const statsResult = await pool.query(`
+      SELECT 
+        SUM(questions_attempted) as total_attempted,
+        SUM(questions_correct) as total_correct,
+        SUM(total_score) as total_score,
+        MAX(best_streak) as best_streak,
+        COUNT(*) as services_started,
+        COUNT(CASE WHEN is_completed THEN 1 END) as services_completed
+      FROM service_progress WHERE user_id = $1
+    `, [req.user.id]);
+
+    // Recent services (last played, limit 5)
+    const recentServicesResult = await pool.query(`
+      SELECT service_id, service_name, questions_attempted, questions_correct, current_difficulty, total_score
+      FROM service_progress 
+      WHERE user_id = $1 AND last_played IS NOT NULL
+      ORDER BY last_played DESC LIMIT 5
+    `, [req.user.id]);
+
+    // Recent activity (last 10 questions)
+    const recentActivityResult = await pool.query(`
+      SELECT qh.difficulty, qh.was_correct, qh.asked_at, sp.service_name
+      FROM question_history qh
+      JOIN service_progress sp ON qh.service_id = sp.service_id AND qh.user_id = sp.user_id
+      WHERE qh.user_id = $1
+      ORDER BY qh.asked_at DESC LIMIT 10
+    `, [req.user.id]);
+
+    res.json({ 
+      stats: statsResult.rows[0], 
+      recentServices: recentServicesResult.rows,
+      recentActivity: recentActivityResult.rows
+    });
   } catch (err) {
     log('ERROR', '/dashboard', err.message);
     res.status(500).json({ error: 'Server error' });
