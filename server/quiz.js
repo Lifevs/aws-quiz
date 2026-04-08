@@ -148,7 +148,7 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
       if (previousResult === true) {
         consecutive_correct = (consecutive_correct || 0) + 1;
         consecutive_wrong = 0;
-        if (consecutive_correct >= 2 && diffIdx < DIFFICULTY_LEVELS.length - 1) {
+        if (consecutive_correct >= 8 && diffIdx < DIFFICULTY_LEVELS.length - 1) {
           current_difficulty = DIFFICULTY_LEVELS[diffIdx + 1];
           consecutive_correct = 0;
           log('DEBUG', `/services/${serviceId}/question`, `DIFFICULTY INCREASED to ${current_difficulty}`);
@@ -156,10 +156,16 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
       } else {
         consecutive_wrong = (consecutive_wrong || 0) + 1;
         consecutive_correct = 0;
-        if (consecutive_wrong >= 2 && diffIdx > 0) {
+        // Immediate difficulty decrease for remedial learning
+        if (diffIdx > 0) {
           current_difficulty = DIFFICULTY_LEVELS[diffIdx - 1];
+          log('DEBUG', `/services/${serviceId}/question`, `IMMEDIATE DIFFICULTY DECREASE to ${current_difficulty} for remedial`);
+        }
+        if (consecutive_wrong >= 2 && diffIdx > 0) {
+          // Further decrease if needed, but since we already decreased, maybe skip or adjust
+          current_difficulty = DIFFICULTY_LEVELS[Math.max(0, diffIdx - 1)];
           consecutive_wrong = 0;
-          log('DEBUG', `/services/${serviceId}/question`, `DIFFICULTY DECREASED to ${current_difficulty}`);
+          log('DEBUG', `/services/${serviceId}/question`, `FURTHER DIFFICULTY DECREASED to ${current_difficulty}`);
         }
       }
 
@@ -170,6 +176,8 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
       );
       progress.current_difficulty = current_difficulty;
     }
+
+    const isRemedial = previousResult === false;
 
     const recentHashes = await pool.query(
       'SELECT question_hash FROM question_history WHERE user_id=$1 AND service_id=$2 ORDER BY asked_at DESC LIMIT 30',
@@ -183,8 +191,11 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
 
     log('AI_START', `/services/${serviceId}/question`, `Requesting Groq for ${serviceName} (${difficulty})`);
 
-    const systemPrompt = `You are an expert AWS certification exam question generator. Generate questions in the authentic style of official AWS certification exams, including scenario-based questions, multiple-choice with one correct answer, realistic distractors, and detailed explanations. Ensure each question is unique and does not repeat similar patterns or content from previous generations. Focus on practical AWS knowledge and best practices. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
-    const userPrompt = `Generate a unique ${difficulty}-level AWS certification-style question about ${serviceName}. Make it realistic to AWS exams with scenario-based content and one clearly correct answer. Unique ID: ${Date.now()}`;
+    const systemPrompt = `You are an expert AWS certification exam question generator. Generate questions in the authentic style of official AWS certification exams, including scenario-based questions, multiple-choice with one correct answer, realistic distractors, and detailed explanations. Ensure each question is unique and does not repeat similar patterns or content from previous generations. Focus on practical AWS knowledge and best practices. For remedial questions, emphasize building understanding step by step, starting from basics and reinforcing key concepts. The explanation should clearly state the correct answer and why it's correct, and also explain why each incorrect option is wrong compared to the correct choice. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
+    let userPrompt = `Generate a unique ${difficulty}-level AWS certification-style question about ${serviceName}. Make it realistic to AWS exams with scenario-based content and one clearly correct answer. Unique ID: ${Date.now()}`;
+    if (isRemedial) {
+      userPrompt += ` This is a remedial question because the user just got a previous question wrong. Focus on reinforcing the fundamental concepts, provide clear explanations, and help build step-by-step understanding.`;
+    }
 
     // GROQ API CALL
     const completion = await groq.chat.completions.create({
