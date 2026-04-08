@@ -183,8 +183,8 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
 
     log('AI_START', `/services/${serviceId}/question`, `Requesting Groq for ${serviceName} (${difficulty})`);
 
-    const systemPrompt = `You are an expert AWS generator. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
-    const userPrompt = `Generate a ${difficulty}-level AWS question about ${serviceName}. Unique ID: ${Date.now()}`;
+    const systemPrompt = `You are an expert AWS certification exam question generator. Generate questions in the authentic style of official AWS certification exams, including scenario-based questions, multiple-choice with one correct answer, realistic distractors, and detailed explanations. Ensure each question is unique and does not repeat similar patterns or content from previous generations. Focus on practical AWS knowledge and best practices. Return ONLY JSON. Format: { "question": "", "options": {"A":"", "B":"", "C":"", "D":""}, "correct": "A", "explanation": "", "difficulty": "${difficulty}", "topic": "" }`;
+    const userPrompt = `Generate a unique ${difficulty}-level AWS certification-style question about ${serviceName}. Make it realistic to AWS exams with scenario-based content and one clearly correct answer. Unique ID: ${Date.now()}`;
 
     // GROQ API CALL
     const completion = await groq.chat.completions.create({
