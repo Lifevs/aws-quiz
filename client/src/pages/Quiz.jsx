@@ -223,45 +223,43 @@ export default function Quiz() {
   }
 
   return (
-    <div style={{ maxWidth: 780, margin: '0 auto', animation: 'fadeIn 0.3s ease' }} ref={questionRef}>
+    <div className="quiz-page" ref={questionRef}>
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/services')} className="btn btn-ghost" style={{ padding: '7px 12px', fontSize: 13 }}>
+      <div className="quiz-topbar">
+        <button onClick={() => navigate('/services')} className="btn btn-ghost quiz-button">
           ← Back
         </button>
+
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-            {serviceInfo?.name || serviceId}
-          </span>
+          <div className="quiz-headline">{serviceInfo?.name || serviceId}</div>
+          <div className="quiz-subtitle">{serviceInfo?.category || 'AWS Certification Practice'}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span className={`tag tag-${difficulty}`}>{DIFF_LABELS[difficulty]}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
-            {questionCount + 1}/{TOTAL_QUESTIONS}
-          </span>
+          <span className="quiz-subtitle">{questionCount + 1}/{TOTAL_QUESTIONS}</span>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="progress-bar" style={{ height: 3, marginBottom: 24 }}>
+      <div className="progress-bar" style={{ marginBottom: 24 }}>
         <div className="progress-fill" style={{
           width: `${(questionCount / TOTAL_QUESTIONS) * 100}%`,
           background: diffColor,
-          transition: 'width 0.5s ease',
         }} />
       </div>
 
       {/* Session stats row */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+      <div className="quiz-summary-grid">
         {[
           { label: 'Score', value: sessionStats.score, color: 'var(--accent-orange)' },
           { label: 'Correct', value: sessionStats.correct, color: 'var(--accent-green)' },
           { label: 'Wrong', value: sessionStats.wrong, color: 'var(--accent-red)' },
           { label: 'Accuracy', value: sessionStats.correct + sessionStats.wrong > 0 ? `${accuracy}%` : '–', color: 'var(--accent-cyan)' },
         ].map(s => (
-          <div key={s.label} style={{ flex: 1, textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 4px' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{s.label}</div>
+          <div key={s.label} className="quiz-summary-card">
+            <div className="quiz-summary-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="quiz-summary-label">{s.label}</div>
           </div>
         ))}
       </div>
@@ -270,9 +268,9 @@ export default function Quiz() {
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
         background: `${diffColor}10`, border: `1px solid ${diffColor}30`,
-        borderRadius: 8, marginBottom: 20,
+        borderRadius: 12, marginBottom: 20,
       }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: diffColor, animation: !answered && !loading ? 'pulse 2s infinite' : 'none' }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: diffColor, animation: !answered && !loading ? 'pulse 2s infinite' : 'none' }} />
         <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: diffColor, fontWeight: 600 }}>
           {DIFF_LABELS[difficulty]} Level
         </span>
@@ -284,18 +282,18 @@ export default function Quiz() {
       {error && !loading && (
         <div style={{ padding: '20px', textAlign: 'center' }}>
           <div style={{ color: 'var(--accent-red)', marginBottom: 12, fontSize: 14 }}>{error}</div>
-          <button onClick={() => fetchQuestion(lastResult)} className="btn btn-primary">Retry</button>
+          <button onClick={() => fetchQuestion(lastResult)} className="btn btn-primary quiz-button">Retry</button>
         </div>
       )}
 
       {/* Loading state */}
       {loading && (
-        <div className="card" style={{ padding: '48px', textAlign: 'center' }}>
+        <div className="card quiz-card" style={{ textAlign: 'center' }}>
           <div style={{
-            width: 44, height: 44, border: `3px solid var(--border)`,
+            width: 48, height: 48, border: `3px solid var(--border)`,
             borderTopColor: diffColor,
             borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-            margin: '0 auto 16px',
+            margin: '0 auto 18px',
           }} />
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'var(--font-mono)' }}>
             Generating {DIFF_LABELS[difficulty]} question...
@@ -308,158 +306,90 @@ export default function Quiz() {
 
       {/* Question card */}
       {!loading && !error && question && (
-        <div>
-          <div className="card" style={{
-            padding: '28px',
-            animation: 'fadeIn 0.4s ease',
-            borderColor: answered ? (isCorrect ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)') : 'var(--border)',
-            transition: 'border-color 0.3s',
-          }}>
-            {/* Question number + topic */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-                Q{questionCount + 1} of {TOTAL_QUESTIONS}
-              </span>
-              {question.topic && (
-                <span style={{
-                  fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                  background: 'var(--bg-secondary)', color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-mono)',
-                }}>{question.topic}</span>
-              )}
-            </div>
-
-            {/* Question text */}
-            <p style={{
-              fontSize: 16, lineHeight: 1.6, color: 'var(--text-primary)',
-              marginBottom: 24, fontWeight: 500,
-            }}>
-              {question.question}
-            </p>
-
-            {/* Options */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {Object.entries(question.options).map(([key, value]) => {
-                let bg = 'var(--bg-secondary)';
-                let border = 'var(--border)';
-                let color = 'var(--text-primary)';
-                let icon = null;
-
-                if (answered) {
-                  if (key === question.correct) {
-                    bg = 'rgba(0,255,136,0.1)';
-                    border = 'rgba(0,255,136,0.5)';
-                    color = '#00FF88';
-                    icon = '✓';
-                  } else if (key === selected && key !== question.correct) {
-                    bg = 'rgba(255,68,68,0.1)';
-                    border = 'rgba(255,68,68,0.5)';
-                    color = '#FF4444';
-                    icon = '✗';
-                  }
-                } else if (selected === key) {
-                  bg = `${diffColor}15`;
-                  border = `${diffColor}60`;
-                  color = diffColor;
-                }
-
-                return (
-                  <button key={key}
-                    onClick={() => handleSelect(key)}
-                    disabled={answered}
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 12,
-                      padding: '14px 16px', borderRadius: 8, border: `1px solid ${border}`,
-                      background: bg, cursor: answered ? 'default' : 'pointer',
-                      textAlign: 'left', transition: 'all 0.2s', width: '100%',
-                      color,
-                    }}
-                    onMouseEnter={e => { if (!answered) e.currentTarget.style.borderColor = diffColor; }}
-                    onMouseLeave={e => { if (!answered && selected !== key) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  >
-                    <span style={{
-                      flexShrink: 0, width: 26, height: 26, borderRadius: 6,
-                      border: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12,
-                      background: selected === key || (answered && key === question.correct) ? bg : 'transparent',
-                      color,
-                    }}>
-                      {icon || key}
-                    </span>
-                    <span style={{ fontSize: 14, lineHeight: 1.5 }}>{value}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Submit / Next */}
-            <div style={{ marginTop: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
-              {!answered ? (
-                <button
-                  onClick={handleSubmit}
-                  disabled={!selected}
-                  className="btn btn-primary"
-                  style={{ opacity: selected ? 1 : 0.4, padding: '11px 24px' }}>
-                  Submit Answer
-                </button>
-              ) : (
-                <button onClick={handleNext} className="btn btn-cyan" style={{ padding: '11px 24px' }}>
-                  {questionCount + 1 >= TOTAL_QUESTIONS ? 'View Results →' : 'Next Question →'}
-                </button>
-              )}
-              {answered && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 14px', borderRadius: 8,
-                  background: isCorrect ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,68,0.1)',
-                }}>
-                  <span style={{ fontSize: 16 }}>{isCorrect ? '🎯' : '💡'}</span>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13,
-                    color: isCorrect ? 'var(--accent-green)' : 'var(--accent-red)',
-                  }}>
-                    {isCorrect ? `+${sessionStats.score > 0 ? (difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50) : 0}pts` : 'Incorrect'}
-                  </span>
-                </div>
-              )}
-            </div>
+        <div className="quiz-card card" style={{ borderColor: answered ? (isCorrect ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,68,0.3)') : 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+              Q{questionCount + 1} of {TOTAL_QUESTIONS}
+            </span>
+            {question.topic && (
+              <span style={{
+                fontSize: 12, padding: '4px 10px', borderRadius: 999,
+                background: 'var(--bg-secondary)', color: 'var(--text-muted)',
+                fontFamily: 'var(--font-mono)',
+              }}>{question.topic}</span>
+            )}
           </div>
 
-          {/* Explanation */}
-          {showExplanation && question.explanation && (
-            <div className="card" style={{
-              padding: '20px 24px', marginTop: 12,
-              background: 'rgba(0,212,255,0.04)',
-              borderColor: 'rgba(0,212,255,0.2)',
-              animation: 'fadeIn 0.3s ease',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 14 }}>📖</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent-cyan)' }}>
-                  EXPLANATION
+          <p className="quiz-question-text">{question.question}</p>
+
+          <div className="quiz-options">
+            {Object.entries(question.options).map(([key, value]) => {
+              const classes = ['quiz-option'];
+              if (selected === key && !answered) classes.push('selected');
+              if (answered && key === question.correct) classes.push('correct');
+              if (answered && selected === key && key !== question.correct) classes.push('wrong');
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={classes.join(' ')}
+                  onClick={() => handleSelect(key)}
+                  disabled={answered}
+                >
+                  <span className="label">{key}</span>
+                  <span>{value}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="quiz-action-row">
+            {!answered ? (
+              <button
+                onClick={handleSubmit}
+                disabled={!selected}
+                className="btn btn-primary quiz-button"
+                style={{ opacity: selected ? 1 : 0.45 }}
+              >
+                Submit Answer
+              </button>
+            ) : (
+              <button onClick={handleNext} className="btn btn-cyan quiz-button">
+                {questionCount + 1 >= TOTAL_QUESTIONS ? 'View Results →' : 'Next Question →'}
+              </button>
+            )}
+
+            {answered && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderRadius: 18, background: isCorrect ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,68,0.1)' }}>
+                <span style={{ fontSize: 18 }}>{isCorrect ? '🎯' : '💡'}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: isCorrect ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                  {isCorrect ? `+${difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50} pts` : 'Incorrect'}
                 </span>
               </div>
-              <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-                {question.explanation}
-              </p>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+      )}
 
-          {/* Adaptive hint */}
-          {answered && (
-            <div style={{
-              padding: '10px 14px', marginTop: 10, borderRadius: 8,
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8,
-            }}>
-              <span>🤖</span>
-              <span>
-                {isCorrect
-                  ? 'Great! Difficulty may increase on next question.'
-                  : 'No worries! Difficulty may decrease to reinforce fundamentals.'}
-              </span>
-            </div>
-          )}
+      {showExplanation && question.explanation && (
+        <div className="card quiz-card alt quiz-explanation">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 16 }}>📖</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent-cyan)' }}>
+              EXPLANATION
+            </span>
+          </div>
+          <p>{question.explanation}</p>
+        </div>
+      )}
+
+      {answered && (
+        <div className="quiz-hint">
+          <span style={{ marginRight: 10 }}>{isCorrect ? '✅' : '🔄'}</span>
+          {isCorrect
+            ? 'Great job — keep the momentum going with the next question.'
+            : 'Review the explanation to reinforce the concept; the next question will adjust to help you learn.'}
         </div>
       )}
     </div>
