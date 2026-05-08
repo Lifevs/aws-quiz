@@ -11,7 +11,7 @@ const sdk = require('node-appwrite');
 const client = new sdk.Client();
 
 // Configuration
-const endpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
+const endpoint = process.env.APPWRITE_ENDPOINT || 'https://sgp.cloud.appwrite.io/v1';
 const projectId = process.env.APPWRITE_PROJECT_ID || 'aws-quiz'; // Default if not provided
 const apiKey = process.env.DATABASE_URL; // User explicitly said API key is here
 
