@@ -15,7 +15,7 @@
     "express-rate-limit": "^7.1.5",
     "groq-sdk": "^1.1.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.11.3"
+    "node-appwrite": "^24.0.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

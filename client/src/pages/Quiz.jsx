@@ -36,6 +36,11 @@ export default function Quiz() {
   const [lastResult, setLastResult] = useState(undefined);
   const [error, setError] = useState('');
   const [sessionHistory, setSessionHistory] = useState([]);
+  
+  const [userExplanation, setUserExplanation] = useState('');
+  const [evaluationText, setEvaluationText] = useState('');
+  const [understandingScore, setUnderstandingScore] = useState(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
 
   const questionRef = useRef(null);
 
@@ -56,6 +61,10 @@ export default function Quiz() {
     setIsCorrect(null);
     setShowExplanation(false);
     setError('');
+    setUserExplanation('');
+    setEvaluationText('');
+    setUnderstandingScore(null);
+    setIsEvaluating(false);
 
     try {
       const res = await api.post(`/quiz/services/${serviceId}/question`, {
@@ -83,12 +92,15 @@ export default function Quiz() {
   };
 
   const handleSubmit = async () => {
-    if (!selected || answered || !question) return;
+    if (!selected || answered || !question || !userExplanation.trim()) return;
     const correct = selected === question.correct;
     setAnswered(true);
     setIsCorrect(correct);
     setShowExplanation(true);
     setLastResult(correct);
+    setIsEvaluating(true);
+    setEvaluationText('');
+    setUnderstandingScore(null);
 
     const scoreGain = correct
       ? (difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50)
@@ -109,14 +121,49 @@ export default function Quiz() {
     }]);
 
     try {
-      await api.post(`/quiz/services/${serviceId}/answer`, {
-        questionHash: question.hash,
-        selectedOption: selected,
-        correctOption: question.correct,
-        difficulty,
+      const response = await fetch(`${api.defaults.baseURL}/quiz/services/${serviceId}/evaluate-answer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': api.defaults.headers.common['Authorization'] || `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          questionHash: question.hash,
+          selectedOption: selected,
+          correctOption: question.correct,
+          difficulty,
+          userExplanation,
+          questionText: question.question,
+          optionsText: question.options
+        })
       });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let done = false;
+      let fullText = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          
+          const scoreMatch = fullText.match(/\[\[SCORE:\s*(\d+)\]\]/);
+          if (scoreMatch) {
+            setUnderstandingScore(parseInt(scoreMatch[1], 10));
+            setEvaluationText(fullText.replace(/\[\[SCORE:\s*\d+\]\]/, '').trim());
+          } else {
+            setEvaluationText(fullText);
+          }
+        }
+      }
+      setIsEvaluating(false);
     } catch (err) {
       console.error('Answer submit error:', err);
+      setIsEvaluating(false);
+      setEvaluationText('Error connecting to the AI mentor. Please proceed to the next question.');
     }
   };
 
@@ -344,13 +391,22 @@ export default function Quiz() {
             })}
           </div>
 
+          {selected && !answered && (
+            <textarea
+              className="quiz-explanation-input animate-fade"
+              placeholder="Why is this option right, and why are the others wrong? Explain your thought process..."
+              value={userExplanation}
+              onChange={e => setUserExplanation(e.target.value)}
+            />
+          )}
+
           <div className="quiz-action-row">
             {!answered ? (
               <button
                 onClick={handleSubmit}
-                disabled={!selected}
+                disabled={!selected || !userExplanation.trim()}
                 className="btn btn-primary quiz-button"
-                style={{ opacity: selected ? 1 : 0.45 }}
+                style={{ opacity: selected && userExplanation.trim() ? 1 : 0.45 }}
               >
                 Submit Answer
               </button>
@@ -368,6 +424,50 @@ export default function Quiz() {
                 </span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {answered && (
+        <div className="evaluation-board">
+          <div style={{ textAlign: 'center' }}>
+            <h3 className="display" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>AI Mentor Evaluation</h3>
+            <p style={{ color: 'var(--text-secondary)' }}>Analyzing your thought process...</p>
+          </div>
+
+          <div className="speedometer-container">
+            <svg width="200" height="100" viewBox="0 0 200 100">
+              <defs>
+                <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="var(--accent-red)" />
+                  <stop offset="50%" stopColor="var(--accent-orange)" />
+                  <stop offset="100%" stopColor="var(--accent-green)" />
+                </linearGradient>
+              </defs>
+              <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="var(--bg-secondary)" strokeWidth="20" />
+              <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="url(#arcGrad)" strokeWidth="20" />
+            </svg>
+            <div 
+              style={{
+                position: 'absolute', bottom: 0, left: '50%',
+                width: 4, height: 75, background: 'white',
+                transformOrigin: 'bottom center',
+                transform: `translateX(-50%) rotate(${understandingScore !== null ? (understandingScore / 100) * 180 - 90 : -90}deg)`,
+                transition: 'transform 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                borderRadius: 2, zIndex: 2
+              }}
+            >
+              <div style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', width: 16, height: 16, borderRadius: '50%', background: 'white', boxShadow: '0 0 10px rgba(255,255,255,0.5)' }} />
+            </div>
+            <div className="speedometer-score">
+              <div className="speedometer-score-val">{understandingScore !== null ? understandingScore : '--'}</div>
+              <div className="speedometer-score-label">Understanding</div>
+            </div>
+          </div>
+
+          <div className="evaluation-analysis">
+            {evaluationText || 'Connecting to AI...'}
+            {isEvaluating && <span className="typing-cursor"></span>}
           </div>
         </div>
       )}

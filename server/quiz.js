@@ -1,7 +1,7 @@
 const express = require('express');
 const Groq = require('groq-sdk'); // Switched to Groq
 const crypto = require('crypto');
-const { pool } = require('./db');
+const { databases, DB_ID, sdk } = require('./db');
 const { authenticateToken } = require('./auth');
 
 const router = express.Router();
@@ -67,15 +67,15 @@ const getDifficultyPrompt = (difficulty, service) => {
 router.get('/services', authenticateToken, async (req, res) => {
   log('GET', '/services', `Fetching services for user: ${req.user.id}`);
   try {
-    const progressResult = await pool.query(
-      'SELECT service_id, service_name, questions_attempted, questions_correct, current_difficulty, total_score, best_streak, current_streak, is_completed, last_played FROM service_progress WHERE user_id = $1',
-      [req.user.id]
-    );
+    const progressResult = await databases.listDocuments(DB_ID, 'service_progress', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.limit(100)
+    ]);
     
-    log('GET', '/services', `Found ${progressResult.rows.length} progress records.`);
+    log('GET', '/services', `Found ${progressResult.documents.length} progress records.`);
 
     const progressMap = {};
-    progressResult.rows.forEach(row => { progressMap[row.service_id] = row; });
+    progressResult.documents.forEach(row => { progressMap[row.service_id] = row; });
 
     const services = Object.entries(AWS_SERVICES).map(([id, info]) => ({
       id,
@@ -100,17 +100,20 @@ router.get('/services/:serviceId/progress', authenticateToken, async (req, res) 
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM service_progress WHERE user_id = $1 AND service_id = $2',
-      [req.user.id, serviceId]
-    );
-    const history = await pool.query(
-      'SELECT difficulty, was_correct, asked_at FROM question_history WHERE user_id = $1 AND service_id = $2 ORDER BY asked_at DESC LIMIT 20',
-      [req.user.id, serviceId]
-    );
+    const progRes = await databases.listDocuments(DB_ID, 'service_progress', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId)
+    ]);
+
+    const histRes = await databases.listDocuments(DB_ID, 'question_history', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId),
+      sdk.Query.orderDesc('asked_at'),
+      sdk.Query.limit(20)
+    ]);
     
-    log('GET', `/services/${serviceId}/progress`, `Returning ${history.rows.length} history items.`);
-    res.json({ progress: result.rows[0] || null, history: history.rows });
+    log('GET', `/services/${serviceId}/progress`, `Returning ${histRes.documents.length} history items.`);
+    res.json({ progress: progRes.documents[0] || null, history: histRes.documents });
   } catch (err) {
     log('ERROR', `/services/${serviceId}/progress`, err.message);
     res.status(500).json({ error: 'Server error' });
@@ -125,20 +128,28 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
   if (!AWS_SERVICES[serviceId]) return res.status(404).json({ error: 'Service not found' });
 
   try {
-    let progressResult = await pool.query(
-      'SELECT * FROM service_progress WHERE user_id = $1 AND service_id = $2',
-      [req.user.id, serviceId]
-    );
+    let progRes = await databases.listDocuments(DB_ID, 'service_progress', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId)
+    ]);
 
-    let progress = progressResult.rows[0];
+    let progress = progRes.documents[0];
     if (!progress) {
       log('INFO', `/services/${serviceId}/question`, 'First time playing. Creating progress record.');
-      const insertResult = await pool.query(
-        `INSERT INTO service_progress (user_id, service_id, service_name, current_difficulty)
-         VALUES ($1, $2, $3, 'foundation') RETURNING *`,
-        [req.user.id, serviceId, AWS_SERVICES[serviceId].name]
-      );
-      progress = insertResult.rows[0];
+      progress = await databases.createDocument(DB_ID, 'service_progress', sdk.ID.unique(), {
+        user_id: String(req.user.id),
+        service_id: serviceId,
+        service_name: AWS_SERVICES[serviceId].name,
+        current_difficulty: 'foundation',
+        questions_attempted: 0,
+        questions_correct: 0,
+        consecutive_correct: 0,
+        consecutive_wrong: 0,
+        best_streak: 0,
+        current_streak: 0,
+        total_score: 0,
+        is_completed: false
+      });
     }
 
     if (previousResult !== undefined) {
@@ -162,28 +173,29 @@ router.post('/services/:serviceId/question', authenticateToken, async (req, res)
           log('DEBUG', `/services/${serviceId}/question`, `IMMEDIATE DIFFICULTY DECREASE to ${current_difficulty} for remedial`);
         }
         if (consecutive_wrong >= 2 && diffIdx > 0) {
-          // Further decrease if needed, but since we already decreased, maybe skip or adjust
+          // Further decrease if needed
           current_difficulty = DIFFICULTY_LEVELS[Math.max(0, diffIdx - 1)];
           consecutive_wrong = 0;
           log('DEBUG', `/services/${serviceId}/question`, `FURTHER DIFFICULTY DECREASED to ${current_difficulty}`);
         }
       }
 
-      await pool.query(
-        `UPDATE service_progress SET consecutive_correct=$1, consecutive_wrong=$2, current_difficulty=$3
-         WHERE user_id=$4 AND service_id=$5`,
-        [consecutive_correct, consecutive_wrong, current_difficulty, req.user.id, serviceId]
-      );
-      progress.current_difficulty = current_difficulty;
+      progress = await databases.updateDocument(DB_ID, 'service_progress', progress.$id, {
+        consecutive_correct,
+        consecutive_wrong,
+        current_difficulty
+      });
     }
 
     const isRemedial = previousResult === false;
 
-    const recentHashes = await pool.query(
-      'SELECT question_hash FROM question_history WHERE user_id=$1 AND service_id=$2 ORDER BY asked_at DESC LIMIT 30',
-      [req.user.id, serviceId]
-    );
-    const usedHashes = recentHashes.rows.map(r => r.question_hash);
+    const recentHashesRes = await databases.listDocuments(DB_ID, 'question_history', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId),
+      sdk.Query.orderDesc('asked_at'),
+      sdk.Query.limit(30)
+    ]);
+    const usedHashes = recentHashesRes.documents.map(r => r.question_hash);
 
     const serviceName = AWS_SERVICES[serviceId].name;
     const difficulty = progress.current_difficulty;
@@ -240,33 +252,52 @@ router.post('/services/:serviceId/answer', authenticateToken, async (req, res) =
   log('POST', `/services/${serviceId}/answer`, `User: ${req.user.id} | Correct: ${isCorrect} | Hash: ${questionHash}`);
 
   try {
-    await pool.query(
-      `INSERT INTO question_history (user_id, service_id, question_hash, was_correct, difficulty)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, service_id, question_hash) DO UPDATE SET was_correct=$4, asked_at=NOW()`,
-      [req.user.id, serviceId, questionHash, isCorrect, difficulty]
-    );
+    const existingHist = await databases.listDocuments(DB_ID, 'question_history', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId),
+      sdk.Query.equal('question_hash', questionHash)
+    ]);
+    if (existingHist.documents.length > 0) {
+      await databases.updateDocument(DB_ID, 'question_history', existingHist.documents[0].$id, {
+        was_correct: isCorrect,
+        asked_at: new Date().toISOString()
+      });
+    } else {
+      await databases.createDocument(DB_ID, 'question_history', sdk.ID.unique(), {
+        user_id: String(req.user.id),
+        service_id: serviceId,
+        question_hash: questionHash,
+        was_correct: isCorrect,
+        difficulty,
+        asked_at: new Date().toISOString()
+      });
+    }
 
     const scoreGain = isCorrect ? (difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50) : 0;
 
-    const progressResult = await pool.query(
-      `UPDATE service_progress SET
-        questions_attempted = questions_attempted + 1,
-        questions_correct = questions_correct + $1,
-        total_score = total_score + $2,
-        current_streak = CASE WHEN $3 THEN current_streak + 1 ELSE 0 END,
-        best_streak = CASE WHEN $3 AND current_streak + 1 > best_streak THEN current_streak + 1 ELSE best_streak END,
-        last_played = NOW()
-       WHERE user_id=$4 AND service_id=$5
-       RETURNING *`,
-      [isCorrect ? 1 : 0, scoreGain, isCorrect, req.user.id, serviceId]
-    );
+    const progRes = await databases.listDocuments(DB_ID, 'service_progress', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.equal('service_id', serviceId)
+    ]);
+    let progressResult = null;
+    if (progRes.documents.length > 0) {
+      const p = progRes.documents[0];
+      const newStreak = isCorrect ? (p.current_streak || 0) + 1 : 0;
+      progressResult = await databases.updateDocument(DB_ID, 'service_progress', p.$id, {
+        questions_attempted: (p.questions_attempted || 0) + 1,
+        questions_correct: (p.questions_correct || 0) + (isCorrect ? 1 : 0),
+        total_score: (p.total_score || 0) + scoreGain,
+        current_streak: newStreak,
+        best_streak: Math.max(p.best_streak || 0, newStreak),
+        last_played: new Date().toISOString()
+      });
+    }
 
     log('SUCCESS', `/services/${serviceId}/answer`, `Score updated. Gain: ${scoreGain}`);
     res.json({
       correct: isCorrect,
       scoreGain,
-      progress: progressResult.rows[0],
+      progress: progressResult,
     });
   } catch (err) {
     log('ERROR', `/services/${serviceId}/answer`, err.message);
@@ -274,11 +305,131 @@ router.post('/services/:serviceId/answer', authenticateToken, async (req, res) =
   }
 });
 
+router.post('/services/:serviceId/evaluate-answer', authenticateToken, async (req, res) => {
+  const { serviceId } = req.params;
+  const { questionHash, selectedOption, correctOption, difficulty, userExplanation, questionText, optionsText } = req.body;
+  const isCorrectChoice = selectedOption === correctOption;
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
+  log('POST', `/services/${serviceId}/evaluate-answer`, `User: ${req.user.id} | Hash: ${questionHash}`);
+
+  try {
+    const systemPrompt = `You are an AWS certification expert and a perceptive mentor. The user has answered a question about AWS.
+Evaluate their thought process based on their explanation.
+Question: ${questionText}
+Options: ${JSON.stringify(optionsText)}
+Correct Answer: ${correctOption}
+User's Choice: ${selectedOption}
+User's Explanation: "${userExplanation}"
+
+Provide a detailed analysis directly addressing the user. Tell them why their thought process is on the right track or where they misunderstood concepts. Be encouraging but precise.
+At the very end of your response, on a new line, output EXACTLY this format:
+[[SCORE: X]]
+where X is an integer from 0 to 100 representing their understanding score based on their explanation (give partial credit for good reasoning even if the final choice was wrong, and deduct if they guessed the right answer for the wrong reason).
+Do not include JSON or markdown code blocks for the score, just plain text.`;
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "system", content: systemPrompt }],
+      stream: true,
+      temperature: 0.5,
+    });
+
+    let fullResponse = "";
+
+    for await (const chunk of completion) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      fullResponse += content;
+      res.write(content);
+    }
+
+    // Extract score
+    const scoreMatch = fullResponse.match(/\[\[SCORE:\s*(\d+)\]\]/);
+    let understandingScore = isCorrectChoice ? 50 : 0; // fallback
+    if (scoreMatch) {
+        understandingScore = parseInt(scoreMatch[1], 10);
+    }
+
+    // Now update database asynchronously without blocking the client response end
+    (async () => {
+        try {
+            const existingHist = await databases.listDocuments(DB_ID, 'question_history', [
+              sdk.Query.equal('user_id', String(req.user.id)),
+              sdk.Query.equal('service_id', serviceId),
+              sdk.Query.equal('question_hash', questionHash)
+            ]);
+            if (existingHist.documents.length > 0) {
+              await databases.updateDocument(DB_ID, 'question_history', existingHist.documents[0].$id, {
+                was_correct: isCorrectChoice,
+                asked_at: new Date().toISOString()
+              });
+            } else {
+              await databases.createDocument(DB_ID, 'question_history', sdk.ID.unique(), {
+                user_id: String(req.user.id),
+                service_id: serviceId,
+                question_hash: questionHash,
+                was_correct: isCorrectChoice,
+                difficulty,
+                asked_at: new Date().toISOString()
+              });
+            }
+
+            // Scale scoreGain based on understandingScore (0-100) and difficulty
+            const maxGain = difficulty === 'foundation' ? 10 : difficulty === 'associate' ? 20 : difficulty === 'advanced' ? 35 : 50;
+            const scoreGain = Math.round((understandingScore / 100) * maxGain);
+
+            const progRes = await databases.listDocuments(DB_ID, 'service_progress', [
+              sdk.Query.equal('user_id', String(req.user.id)),
+              sdk.Query.equal('service_id', serviceId)
+            ]);
+            if (progRes.documents.length > 0) {
+              const p = progRes.documents[0];
+              const newStreak = isCorrectChoice ? (p.current_streak || 0) + 1 : 0;
+              await databases.updateDocument(DB_ID, 'service_progress', p.$id, {
+                questions_attempted: (p.questions_attempted || 0) + 1,
+                questions_correct: (p.questions_correct || 0) + (isCorrectChoice ? 1 : 0),
+                total_score: (p.total_score || 0) + scoreGain,
+                current_streak: newStreak,
+                best_streak: Math.max(p.best_streak || 0, newStreak),
+                last_played: new Date().toISOString()
+              });
+            }
+        } catch (dbErr) {
+            log('ERROR', `/services/${serviceId}/evaluate-answer (DB Async)`, dbErr.message);
+        }
+    })();
+
+    res.end();
+  } catch (err) {
+    log('ERROR', `/services/${serviceId}/evaluate-answer`, err.message);
+    res.end("\nError generating evaluation.");
+  }
+});
+
 router.get('/leaderboard', authenticateToken, async (req, res) => {
   log('GET', '/leaderboard', 'Fetching top 20');
   try {
-    const result = await pool.query('SELECT u.name, SUM(sp.total_score) as total_score FROM users u LEFT JOIN service_progress sp ON u.id = sp.user_id GROUP BY u.id, u.name ORDER BY total_score DESC LIMIT 20');
-    res.json({ leaderboard: result.rows });
+    const usersRes = await databases.listDocuments(DB_ID, 'users', [sdk.Query.limit(100)]);
+    const progressRes = await databases.listDocuments(DB_ID, 'service_progress', [sdk.Query.limit(1000)]);
+    
+    const userScores = {};
+    usersRes.documents.forEach(u => {
+      userScores[u.$id] = { name: u.name, total_score: 0 };
+    });
+    
+    progressRes.documents.forEach(p => {
+      if (userScores[p.user_id]) {
+        userScores[p.user_id].total_score += (p.total_score || 0);
+      }
+    });
+    
+    const leaderboard = Object.values(userScores)
+      .sort((a, b) => b.total_score - a.total_score)
+      .slice(0, 20);
+      
+    res.json({ leaderboard });
   } catch (err) {
     log('ERROR', '/leaderboard', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -288,39 +439,53 @@ router.get('/leaderboard', authenticateToken, async (req, res) => {
 router.get('/dashboard', authenticateToken, async (req, res) => {
   log('GET', '/dashboard', `User: ${req.user.id}`);
   try {
-    // Aggregate stats from service_progress
-    const statsResult = await pool.query(`
-      SELECT 
-        SUM(questions_attempted) as total_attempted,
-        SUM(questions_correct) as total_correct,
-        SUM(total_score) as total_score,
-        MAX(best_streak) as best_streak,
-        COUNT(*) as services_started,
-        COUNT(CASE WHEN is_completed THEN 1 END) as services_completed
-      FROM service_progress WHERE user_id = $1
-    `, [req.user.id]);
+    const progressRes = await databases.listDocuments(DB_ID, 'service_progress', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.limit(100)
+    ]);
+    
+    const stats = {
+      total_attempted: 0,
+      total_correct: 0,
+      total_score: 0,
+      best_streak: 0,
+      services_started: progressRes.documents.length,
+      services_completed: 0
+    };
+    
+    progressRes.documents.forEach(p => {
+      stats.total_attempted += (p.questions_attempted || 0);
+      stats.total_correct += (p.questions_correct || 0);
+      stats.total_score += (p.total_score || 0);
+      stats.best_streak = Math.max(stats.best_streak, (p.best_streak || 0));
+      if (p.is_completed) stats.services_completed++;
+    });
+    
+    const recentServices = progressRes.documents
+      .filter(p => p.last_played)
+      .sort((a, b) => new Date(b.last_played) - new Date(a.last_played))
+      .slice(0, 5);
 
-    // Recent services (last played, limit 5)
-    const recentServicesResult = await pool.query(`
-      SELECT service_id, service_name, questions_attempted, questions_correct, current_difficulty, total_score
-      FROM service_progress 
-      WHERE user_id = $1 AND last_played IS NOT NULL
-      ORDER BY last_played DESC LIMIT 5
-    `, [req.user.id]);
-
-    // Recent activity (last 10 questions)
-    const recentActivityResult = await pool.query(`
-      SELECT qh.difficulty, qh.was_correct, qh.asked_at, sp.service_name
-      FROM question_history qh
-      JOIN service_progress sp ON qh.service_id = sp.service_id AND qh.user_id = sp.user_id
-      WHERE qh.user_id = $1
-      ORDER BY qh.asked_at DESC LIMIT 10
-    `, [req.user.id]);
+    const histRes = await databases.listDocuments(DB_ID, 'question_history', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.orderDesc('asked_at'),
+      sdk.Query.limit(10)
+    ]);
+    
+    const serviceNameMap = {};
+    progressRes.documents.forEach(p => serviceNameMap[p.service_id] = p.service_name);
+    
+    const recentActivity = histRes.documents.map(h => ({
+      difficulty: h.difficulty,
+      was_correct: h.was_correct,
+      asked_at: h.asked_at,
+      service_name: serviceNameMap[h.service_id] || h.service_id
+    }));
 
     res.json({ 
-      stats: statsResult.rows[0], 
-      recentServices: recentServicesResult.rows,
-      recentActivity: recentActivityResult.rows
+      stats, 
+      recentServices,
+      recentActivity
     });
   } catch (err) {
     log('ERROR', '/dashboard', err.message);
