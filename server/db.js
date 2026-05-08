@@ -25,7 +25,7 @@ if (endpoint && projectId && apiKey) {
 }
 
 const databases = new sdk.Databases(client);
-const DB_ID = 'aws-db';
+const DB_ID = process.env.APPWRITE_DB_ID || 'aws-db';
 
 const initDB = async () => {
   try {
