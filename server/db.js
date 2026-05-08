@@ -22,7 +22,7 @@ const DB_ID = 'aws-db';
 
 const initDB = async () => {
   try {
-    console.log('🔄 Checking Appwrite database...');
+    console.log(`🔄 Checking Appwrite database... (Endpoint: ${endpoint}, Project: ${projectId})`);
     try {
       await databases.get(DB_ID);
       console.log(`✅ Database ${DB_ID} exists.`);
@@ -93,9 +93,11 @@ const initDB = async () => {
       await databases.createDatetimeAttribute(DB_ID, 'question_history', 'asked_at', false);
     }
 
-    console.log('✅ Appwrite Database initialization complete. (Note: Appwrite processes new attributes in the background. Wait a moment before querying.)');
+    console.log('✅ Appwrite Database initialization complete.');
   } catch (err) {
     console.error('❌ Database initialization error:', err.message || err);
+    if (err.cause) console.error('Cause:', err.cause);
+    throw err; // Re-throw so server.js catches it
   }
 };
 
