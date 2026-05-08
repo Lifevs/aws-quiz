@@ -9,6 +9,7 @@ const { router: authRouter } = require('./auth');
 const quizRouter = require('./quiz');
 
 const app = express();
+app.set('trust proxy', 1); // Trust the first proxy (Render)
 const PORT = process.env.PORT || 5000;
 
 // Middleware

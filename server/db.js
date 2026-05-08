@@ -1,4 +1,11 @@
 // server/db.js
+// Polyfill fetch with node-fetch to fix UND_ERR_INVALID_ARG in Node 18+ undici with Appwrite SDK
+const fetch = require('node-fetch');
+global.fetch = fetch;
+global.Headers = fetch.Headers;
+global.Request = fetch.Request;
+global.Response = fetch.Response;
+
 const sdk = require('node-appwrite');
 
 const client = new sdk.Client();
