@@ -9,7 +9,7 @@ const DOMAIN_DETAILS = [
   { name: 'Domain 4: Troubleshooting and Optimization', weight: '18%', color: 'var(--accent-purple)', focus: 'X-Ray Tracing, CloudWatch Logs/Metrics/Alarms, CloudTrail audits, API Gateway errors, CLI credential debugging' }
 ];
 
-export default function Services() {
+export default function ExamCenter() {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedQuestions, setSelectedQuestions] = useState(65);
@@ -30,18 +30,13 @@ export default function Services() {
     try {
       const res = await api.post('/quiz/exams/start', { totalQuestions: selectedQuestions });
       const examId = res.data.exam.$id;
-      navigate(`/quiz/${examId}`);
+      navigate(`/exam/${examId}`);
     } catch (err) {
       alert('Failed to start exam simulation. Please try again.');
       console.error(err);
     } finally {
       setStarting(false);
     }
-  };
-
-  const getAccuracy = (exam) => {
-    if (!exam || exam.total_questions === 0) return 0;
-    return exam.score;
   };
 
   const formatTime = (secs) => {
@@ -209,7 +204,7 @@ export default function Services() {
                       </td>
                       <td style={{ padding: '14px 0' }}>
                         <button
-                          onClick={() => navigate(`/quiz/${ex.$id}`)}
+                          onClick={() => navigate(`/exam/${ex.$id}`)}
                           className={`btn ${isInProgress ? 'btn-primary' : 'btn-ghost'}`}
                           style={{ fontSize: 12, padding: '6px 12px' }}
                         >

@@ -35,7 +35,7 @@ const questionLimiter = rateLimit({
 });
 
 app.use('/api/', apiLimiter);
-app.use('/api/quiz/services/:serviceId/question', questionLimiter);
+app.use('/api/quiz/exams/:examId/questions/:index', questionLimiter);
 
 // Routes
 app.use('/api/auth', authRouter);

@@ -96,26 +96,27 @@ router.post('/login', async (req, res) => {
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    // Get overall stats manually since NoSQL lacks SUM/COUNT aggregations
-    const progressDocs = await databases.listDocuments(DB_ID, 'service_progress', [
+    const examsRes = await databases.listDocuments(DB_ID, 'exams', [
       sdk.Query.equal('user_id', String(req.user.id)),
-      sdk.Query.limit(100) // Assuming < 100 AWS services
+      sdk.Query.limit(100)
     ]);
 
-    const stats = {
-      total_attempted: 0,
-      total_correct: 0,
-      total_score: 0,
-      services_completed: 0,
-      services_started: progressDocs.documents.length
-    };
+    const completedExams = examsRes.documents.filter(e => e.status !== 'in_progress');
+    const totalCompleted = completedExams.length;
 
-    for (const doc of progressDocs.documents) {
-      stats.total_attempted += (doc.questions_attempted || 0);
-      stats.total_correct += (doc.questions_correct || 0);
-      stats.total_score += (doc.total_score || 0);
-      if (doc.is_completed) stats.services_completed++;
-    }
+    let totalScore = 0;
+    let passedCount = 0;
+
+    completedExams.forEach(e => {
+      totalScore += e.score;
+      if (e.status === 'pass') passedCount++;
+    });
+
+    const stats = {
+      total_completed: totalCompleted,
+      avg_score: totalCompleted > 0 ? Math.round(totalScore / totalCompleted) : 0,
+      pass_rate: totalCompleted > 0 ? Math.round((passedCount / totalCompleted) * 100) : 0
+    };
 
     res.json({ user: req.user, stats });
   } catch (err) {

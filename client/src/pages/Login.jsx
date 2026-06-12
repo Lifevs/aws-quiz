@@ -57,10 +57,10 @@ export default function Login() {
             margin: '0 auto 16px', boxShadow: '0 8px 32px rgba(255,153,0,0.3)',
           }}>A</div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>
-            AWS Quiz Master
+            AWS DVA-C02 Simulator
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-            Adaptive learning for AWS Developer Associate
+            Timed Practice Exam Simulations for AWS Certified Developer
           </p>
         </div>
 

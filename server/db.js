@@ -46,123 +46,89 @@ const initDB = async () => {
       try {
         await databases.getCollection(DB_ID, collectionId);
         console.log(`✅ Collection ${collectionId} exists.`);
+        return false;
       } catch (e) {
         if (e.code === 404) {
           console.log(`Creating collection ${collectionId}...`);
           await databases.createCollection(DB_ID, collectionId, name);
+          return true; 
         } else {
           throw e;
         }
       }
     };
 
-    // Attribute creation helpers to ignore 409 (Already Exists) conflicts
-    const createStringAttr = async (collId, key, size, required, defValue) => {
-      try {
-        await databases.createStringAttribute(DB_ID, collId, key, size, required, defValue);
-        console.log(`   + Attribute string:${key} created.`);
-      } catch (e) {
-        if (e.code !== 409) throw e;
-      }
-    };
-
-    const createIntegerAttr = async (collId, key, required, min, max, defValue) => {
-      try {
-        await databases.createIntegerAttribute(DB_ID, collId, key, required, min, max, defValue);
-        console.log(`   + Attribute int:${key} created.`);
-      } catch (e) {
-        if (e.code !== 409) throw e;
-      }
-    };
-
-    const createBooleanAttr = async (collId, key, required, defValue) => {
-      try {
-        await databases.createBooleanAttribute(DB_ID, collId, key, required, defValue);
-        console.log(`   + Attribute bool:${key} created.`);
-      } catch (e) {
-        if (e.code !== 409) throw e;
-      }
-    };
-
-    const createEmailAttr = async (collId, key, required) => {
-      try {
-        await databases.createEmailAttribute(DB_ID, collId, key, required);
-        console.log(`   + Attribute email:${key} created.`);
-      } catch (e) {
-        if (e.code !== 409) throw e;
-      }
-    };
-
-    const createDatetimeAttr = async (collId, key, required) => {
-      try {
-        await databases.createDatetimeAttribute(DB_ID, collId, key, required);
-        console.log(`   + Attribute datetime:${key} created.`);
-      } catch (e) {
-        if (e.code !== 409) throw e;
-      }
-    };
-
     // 1. Users Collection
-    await createCollectionIfNotExists('users', 'Users');
-    console.log('Initializing users attributes...');
-    await createStringAttr('users', 'name', 100, true);
-    await createEmailAttr('users', 'email', true);
-    await createStringAttr('users', 'password_hash', 255, true);
-    await createDatetimeAttr('users', 'created_at', false);
-    await createDatetimeAttr('users', 'last_login', false);
+    const isNewUsers = await createCollectionIfNotExists('users', 'Users');
+    if (isNewUsers) {
+      console.log('Creating attributes for users...');
+      await databases.createStringAttribute(DB_ID, 'users', 'name', 100, true);
+      await databases.createEmailAttribute(DB_ID, 'users', 'email', true);
+      await databases.createStringAttribute(DB_ID, 'users', 'password_hash', 255, true);
+      await databases.createDatetimeAttribute(DB_ID, 'users', 'created_at', false);
+      await databases.createDatetimeAttribute(DB_ID, 'users', 'last_login', false);
+    }
 
     // 2. Service Progress Collection
-    await createCollectionIfNotExists('service_progress', 'Service Progress');
-    console.log('Initializing service_progress attributes...');
-    await createStringAttr('service_progress', 'user_id', 50, true);
-    await createStringAttr('service_progress', 'service_id', 50, true);
-    await createStringAttr('service_progress', 'service_name', 100, true);
-    await createIntegerAttr('service_progress', 'questions_attempted', false, 0, 1000000, 0);
-    await createIntegerAttr('service_progress', 'questions_correct', false, 0, 1000000, 0);
-    await createStringAttr('service_progress', 'current_difficulty', 20, false, 'foundation');
-    await createIntegerAttr('service_progress', 'consecutive_correct', false, 0, 1000000, 0);
-    await createIntegerAttr('service_progress', 'consecutive_wrong', false, 0, 1000000, 0);
-    await createIntegerAttr('service_progress', 'best_streak', false, 0, 1000000, 0);
-    await createIntegerAttr('service_progress', 'current_streak', false, 0, 1000000, 0);
-    await createIntegerAttr('service_progress', 'total_score', false, 0, 10000000, 0);
-    await createDatetimeAttr('service_progress', 'last_played', false);
-    await createBooleanAttr('service_progress', 'is_completed', false, false);
+    const isNewProgress = await createCollectionIfNotExists('service_progress', 'Service Progress');
+    if (isNewProgress) {
+      console.log('Creating attributes for service_progress...');
+      await databases.createStringAttribute(DB_ID, 'service_progress', 'user_id', 50, true);
+      await databases.createStringAttribute(DB_ID, 'service_progress', 'service_id', 50, true);
+      await databases.createStringAttribute(DB_ID, 'service_progress', 'service_name', 100, true);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'questions_attempted', false, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'questions_correct', false, 0, 1000000, 0);
+      await databases.createStringAttribute(DB_ID, 'service_progress', 'current_difficulty', 20, false, 'foundation');
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'consecutive_correct', false, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'consecutive_wrong', false, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'best_streak', false, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'current_streak', false, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'service_progress', 'total_score', false, 0, 10000000, 0);
+      await databases.createDatetimeAttribute(DB_ID, 'service_progress', 'last_played', false);
+      await databases.createBooleanAttribute(DB_ID, 'service_progress', 'is_completed', false, false);
+    }
 
     // 3. Question History Collection
-    await createCollectionIfNotExists('question_history', 'Question History');
-    console.log('Initializing question_history attributes...');
-    await createStringAttr('question_history', 'user_id', 50, true);
-    await createStringAttr('question_history', 'service_id', 50, true);
-    await createStringAttr('question_history', 'question_hash', 64, true);
-    await createBooleanAttr('question_history', 'was_correct', false);
-    await createStringAttr('question_history', 'difficulty', 20, false);
-    await createDatetimeAttr('question_history', 'asked_at', false);
+    const isNewHistory = await createCollectionIfNotExists('question_history', 'Question History');
+    if (isNewHistory) {
+      console.log('Creating attributes for question_history...');
+      await databases.createStringAttribute(DB_ID, 'question_history', 'user_id', 50, true);
+      await databases.createStringAttribute(DB_ID, 'question_history', 'service_id', 50, true);
+      await databases.createStringAttribute(DB_ID, 'question_history', 'question_hash', 64, true);
+      await databases.createBooleanAttribute(DB_ID, 'question_history', 'was_correct', false);
+      await databases.createStringAttribute(DB_ID, 'question_history', 'difficulty', 20, false);
+      await databases.createDatetimeAttribute(DB_ID, 'question_history', 'asked_at', false);
+    }
 
     // 4. Exams Collection
-    await createCollectionIfNotExists('exams', 'Exams');
-    console.log('Initializing exams attributes...');
-    await createStringAttr('exams', 'user_id', 50, true);
-    await createIntegerAttr('exams', 'score', false, 0, 100, 0);
-    await createStringAttr('exams', 'status', 20, false, 'in_progress');
-    await createIntegerAttr('exams', 'time_taken', false, 0, 1000000, 0);
-    await createIntegerAttr('exams', 'total_questions', true, 0, 1000);
-    await createIntegerAttr('exams', 'correct_answers', false, 0, 1000, 0);
-    await createStringAttr('exams', 'created_at', 50, true);
+    const isNewExams = await createCollectionIfNotExists('exams', 'Exams');
+    if (isNewExams) {
+      console.log('Creating attributes for exams...');
+      await databases.createStringAttribute(DB_ID, 'exams', 'user_id', 50, true);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'score', true, 0, 100, 0);
+      await databases.createStringAttribute(DB_ID, 'exams', 'status', 20, true, 'in_progress');
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'time_taken', true, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'total_questions', true, 0, 1000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'correct_answers', true, 0, 1000, 0);
+      await databases.createStringAttribute(DB_ID, 'exams', 'created_at', 50, true);
+    }
 
     // 5. Exam Questions Collection
-    await createCollectionIfNotExists('exam_questions', 'Exam Questions');
-    console.log('Initializing exam_questions attributes...');
-    await createStringAttr('exam_questions', 'exam_id', 50, true);
-    await createIntegerAttr('exam_questions', 'question_index', true, 0, 1000);
-    await createStringAttr('exam_questions', 'domain', 100, true);
-    await createStringAttr('exam_questions', 'question_text', 5000, true);
-    await createStringAttr('exam_questions', 'options', 5000, true);
-    await createStringAttr('exam_questions', 'correct_option', 10, true);
-    await createStringAttr('exam_questions', 'selected_option', 10, false);
-    await createStringAttr('exam_questions', 'explanation', 5000, true);
-    await createStringAttr('exam_questions', 'user_explanation', 5000, false);
-    await createIntegerAttr('exam_questions', 'understanding_score', false, 0, 100, 0);
-    await createStringAttr('exam_questions', 'mentor_feedback', 5000, false);
+    const isNewExamQuestions = await createCollectionIfNotExists('exam_questions', 'Exam Questions');
+    if (isNewExamQuestions) {
+      console.log('Creating attributes for exam_questions...');
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'exam_id', 50, true);
+      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'question_index', true, 0, 1000, 0);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'domain', 100, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'question_text', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'options', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'correct_option', 10, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'selected_option', 10, false);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'explanation', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'user_explanation', 5000, false);
+      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'understanding_score', false, 0, 100, 0);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'mentor_feedback', 5000, false);
+    }
 
     console.log('✅ Appwrite Database initialization complete.');
   } catch (err) {

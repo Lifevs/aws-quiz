@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Services from './pages/Services';
+import ExamCenter from './pages/ExamCenter';
 import Quiz from './pages/Quiz';
 import Leaderboard from './pages/Leaderboard';
 import Layout from './components/Layout';
@@ -36,8 +36,8 @@ export default function App() {
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
-            <Route path="services" element={<Services />} />
-            <Route path="quiz/:serviceId" element={<Quiz />} />
+            <Route path="exam-center" element={<ExamCenter />} />
+            <Route path="exam/:examId" element={<Quiz />} />
             <Route path="leaderboard" element={<Leaderboard />} />
           </Route>
         </Routes>

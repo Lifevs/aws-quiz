@@ -100,7 +100,7 @@ export default function Dashboard() {
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
             Generate random domain-weighted questions in real exam scenarios. Choose between Quick Quizzes or Full 65-question simulators.
           </p>
-          <button onClick={() => navigate('/services')} className="btn btn-primary" style={{ padding: '12px 28px', fontSize: 15 }}>
+          <button onClick={() => navigate('/exam-center')} className="btn btn-primary" style={{ padding: '12px 28px', fontSize: 15 }}>
             Go to Exam Center →
           </button>
         </div>
@@ -177,7 +177,7 @@ export default function Dashboard() {
                       </div>
 
                       <button
-                        onClick={() => navigate(`/quiz/${exam.$id}`)}
+                        onClick={() => navigate(`/exam/${exam.$id}`)}
                         className={`btn ${isInProgress ? 'btn-primary' : 'btn-ghost'}`}
                         style={{ fontSize: 13, padding: '8px 16px' }}
                       >
@@ -192,7 +192,7 @@ export default function Dashboard() {
             <div style={{ textAlign: 'center', padding: '30px 0' }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
               <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>No exams recorded yet.</p>
-              <button onClick={() => navigate('/services')} className="btn btn-primary" style={{ marginTop: 16, fontSize: 13 }}>
+              <button onClick={() => navigate('/exam-center')} className="btn btn-primary" style={{ marginTop: 16, fontSize: 13 }}>
                 Start Your First Simulation
               </button>
             </div>

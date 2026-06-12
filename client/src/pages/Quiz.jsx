@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../context/AuthContext';
 
 export default function Quiz() {
-  const { serviceId: examId } = useParams(); // Using routing parameter as examId
+  const { examId } = useParams();
   const navigate = useNavigate();
 
   // Core state
@@ -301,7 +301,7 @@ export default function Quiz() {
   if (error) return (
     <div style={{ padding: '20px', textAlign: 'center' }}>
       <div style={{ color: 'var(--accent-red)', marginBottom: 12 }}>{error}</div>
-      <button onClick={() => navigate('/services')} className="btn btn-primary">Back to Exam Center</button>
+      <button onClick={() => navigate('/exam-center')} className="btn btn-primary">Back to Exam Center</button>
     </div>
   );
 
@@ -591,7 +591,7 @@ export default function Quiz() {
           </div>
         </div>
 
-        <button onClick={() => navigate('/services')} className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+        <button onClick={() => navigate('/exam-center')} className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
           Exam Center
         </button>
         <button onClick={() => navigate('/dashboard')} className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}>
