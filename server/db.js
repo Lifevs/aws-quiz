@@ -103,11 +103,12 @@ const initDB = async () => {
     const ensureAttributes = async (collectionId, requiredAttributes) => {
       try {
         const col = await databases.getCollection(DB_ID, collectionId);
+        const collectionName = col.name || collectionId;
         const existingKeys = new Set(col.attributes.map(attr => attr.key));
 
         const missing = requiredAttributes.filter(attr => !existingKeys.has(attr.key));
         if (missing.length > 0) {
-          console.log(`Detected ${missing.length} missing attributes in ${collectionId}. Cleaning up documents to permit migration...`);
+          console.log(`Detected ${missing.length} missing attributes in ${collectionId}. Cleaning up documents...`);
           try {
             let hasMore = true;
             while (hasMore) {
@@ -123,23 +124,68 @@ const initDB = async () => {
           } catch (cleanErr) {
             console.warn(`Clean error:`, cleanErr.message);
           }
-        }
 
-        for (const attr of requiredAttributes) {
-          if (!existingKeys.has(attr.key)) {
-            console.log(`Creating missing attribute ${attr.key} in ${collectionId}...`);
-            // Set required: false on the database schema level to bypass Appwrite migration restrictions
-            if (attr.type === 'string') {
-              await databases.createStringAttribute(DB_ID, collectionId, attr.key, attr.size, false, attr.defaultValue);
-            } else if (attr.type === 'integer') {
-              await databases.createIntegerAttribute(DB_ID, collectionId, attr.key, false, attr.min, attr.max, attr.defaultValue);
-            } else if (attr.type === 'boolean') {
-              await databases.createBooleanAttribute(DB_ID, collectionId, attr.key, false, attr.defaultValue);
-            } else if (attr.type === 'datetime') {
-              await databases.createDatetimeAttribute(DB_ID, collectionId, attr.key, false);
+          for (const attr of missing) {
+            try {
+              console.log(`Creating missing attribute ${attr.key} in ${collectionId}...`);
+              if (attr.type === 'string') {
+                await databases.createStringAttribute(DB_ID, collectionId, attr.key, attr.size, false, attr.defaultValue);
+              } else if (attr.type === 'integer') {
+                await databases.createIntegerAttribute(DB_ID, collectionId, attr.key, false, attr.min, attr.max, attr.defaultValue);
+              } else if (attr.type === 'boolean') {
+                await databases.createBooleanAttribute(DB_ID, collectionId, attr.key, false, attr.defaultValue);
+              } else if (attr.type === 'datetime') {
+                await databases.createDatetimeAttribute(DB_ID, collectionId, attr.key, false);
+              }
+              // Small sleep to prevent API race conditions
+              await new Promise(r => setTimeout(r, 200));
+            } catch (err) {
+              const errMsg = (err.message || '').toLowerCase();
+              if (
+                errMsg.includes('maximum') ||
+                errMsg.includes('limit') ||
+                errMsg.includes('row size') ||
+                errMsg.includes('attribute') ||
+                (err.code && err.code === 400)
+              ) {
+                console.warn(`⚠️ Row size/attribute limit reached for collection ${collectionId}. Force-recreating collection with updated sizes...`);
+                
+                // 1. Delete old collection
+                try {
+                  await databases.deleteCollection(DB_ID, collectionId);
+                  console.log(`Successfully deleted collection ${collectionId}`);
+                } catch (delErr) {
+                  console.warn(`Error deleting collection ${collectionId}:`, delErr.message);
+                }
+                await new Promise(r => setTimeout(r, 2000)); // Wait for deletion to complete
+                
+                // 2. Re-create collection
+                await databases.createCollection(DB_ID, collectionId, collectionName);
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // 3. Re-create all attributes from scratch with updated sizes
+                for (const newAttr of requiredAttributes) {
+                  try {
+                    console.log(`Re-creating attribute ${newAttr.key} in empty ${collectionId}...`);
+                    if (newAttr.type === 'string') {
+                      await databases.createStringAttribute(DB_ID, collectionId, newAttr.key, newAttr.size, false, newAttr.defaultValue);
+                    } else if (newAttr.type === 'integer') {
+                      await databases.createIntegerAttribute(DB_ID, collectionId, newAttr.key, false, newAttr.min, newAttr.max, newAttr.defaultValue);
+                    } else if (newAttr.type === 'boolean') {
+                      await databases.createBooleanAttribute(DB_ID, collectionId, newAttr.key, false, newAttr.defaultValue);
+                    } else if (newAttr.type === 'datetime') {
+                      await databases.createDatetimeAttribute(DB_ID, collectionId, newAttr.key, false);
+                    }
+                    await new Promise(r => setTimeout(r, 200));
+                  } catch (recreateErr) {
+                    console.error(`Failed to recreate attribute ${newAttr.key} in ${collectionId}:`, recreateErr.message);
+                  }
+                }
+                break; // Break loop since we recreated and loaded all attributes
+              } else {
+                throw err;
+              }
             }
-            // Small sleep to prevent API race conditions
-            await new Promise(r => setTimeout(r, 200));
           }
         }
       } catch (err) {
@@ -165,14 +211,14 @@ const initDB = async () => {
       { key: 'exam_id', type: 'string', size: 50, required: false },
       { key: 'question_index', type: 'integer', required: false, min: 0, max: 1000, defaultValue: 0 },
       { key: 'domain', type: 'string', size: 100, required: false },
-      { key: 'question_text', type: 'string', size: 5000, required: false },
-      { key: 'options', type: 'string', size: 5000, required: false },
+      { key: 'question_text', type: 'string', size: 1200, required: false },
+      { key: 'options', type: 'string', size: 800, required: false },
       { key: 'correct_option', type: 'string', size: 10, required: false },
       { key: 'selected_option', type: 'string', size: 10, required: false },
-      { key: 'explanation', type: 'string', size: 5000, required: false },
-      { key: 'user_explanation', type: 'string', size: 5000, required: false },
+      { key: 'explanation', type: 'string', size: 1500, required: false },
+      { key: 'user_explanation', type: 'string', size: 1200, required: false },
       { key: 'understanding_score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
-      { key: 'mentor_feedback', type: 'string', size: 5000, required: false }
+      { key: 'mentor_feedback', type: 'string', size: 1500, required: false }
     ]);
 
     console.log('✅ Appwrite Database initialization complete.');
