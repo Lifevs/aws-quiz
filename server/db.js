@@ -104,9 +104,57 @@ const initDB = async () => {
       try {
         const col = await databases.getCollection(DB_ID, collectionId);
         const collectionName = col.name || collectionId;
-        const existingKeys = new Set(col.attributes.map(attr => attr.key));
+        const existingMap = new Map(col.attributes.map(attr => [attr.key, attr]));
 
-        const missing = requiredAttributes.filter(attr => !existingKeys.has(attr.key));
+        let needsRecreate = false;
+        const missing = [];
+
+        for (const req of requiredAttributes) {
+          const existing = existingMap.get(req.key);
+          if (!existing) {
+            missing.push(req);
+          } else if (req.type === 'string' && existing.size < req.size) {
+            console.log(`⚠️ Attribute size mismatch for ${collectionId}.${req.key}: DB size ${existing.size} < required size ${req.size}. Triggering recreate.`);
+            needsRecreate = true;
+          }
+        }
+
+        if (needsRecreate) {
+          console.warn(`⚠️ Size mismatch detected for collection ${collectionId}. Force-recreating collection to apply larger sizes...`);
+          // 1. Delete old collection
+          try {
+            await databases.deleteCollection(DB_ID, collectionId);
+            console.log(`Successfully deleted collection ${collectionId}`);
+          } catch (delErr) {
+            console.warn(`Error deleting collection ${collectionId}:`, delErr.message);
+          }
+          await new Promise(r => setTimeout(r, 2000)); // Wait for deletion to complete
+
+          // 2. Re-create collection
+          await databases.createCollection(DB_ID, collectionId, collectionName);
+          await new Promise(r => setTimeout(r, 1000));
+
+          // 3. Re-create all attributes from scratch with updated sizes
+          for (const newAttr of requiredAttributes) {
+            try {
+              console.log(`Re-creating attribute ${newAttr.key} in empty ${collectionId}...`);
+              if (newAttr.type === 'string') {
+                await databases.createStringAttribute(DB_ID, collectionId, newAttr.key, newAttr.size, false, newAttr.defaultValue);
+              } else if (newAttr.type === 'integer') {
+                await databases.createIntegerAttribute(DB_ID, collectionId, newAttr.key, false, newAttr.min, newAttr.max, newAttr.defaultValue);
+              } else if (newAttr.type === 'boolean') {
+                await databases.createBooleanAttribute(DB_ID, collectionId, newAttr.key, false, newAttr.defaultValue);
+              } else if (newAttr.type === 'datetime') {
+                await databases.createDatetimeAttribute(DB_ID, collectionId, newAttr.key, false);
+              }
+              await new Promise(r => setTimeout(r, 200));
+            } catch (recreateErr) {
+              console.error(`Failed to recreate attribute ${newAttr.key} in ${collectionId}:`, recreateErr.message);
+            }
+          }
+          return;
+        }
+
         if (missing.length > 0) {
           console.log(`Detected ${missing.length} missing attributes in ${collectionId}. Cleaning up documents...`);
           try {
@@ -149,7 +197,7 @@ const initDB = async () => {
                 (err.code && err.code === 400)
               ) {
                 console.warn(`⚠️ Row size/attribute limit reached for collection ${collectionId}. Force-recreating collection with updated sizes...`);
-                
+
                 // 1. Delete old collection
                 try {
                   await databases.deleteCollection(DB_ID, collectionId);
@@ -158,11 +206,11 @@ const initDB = async () => {
                   console.warn(`Error deleting collection ${collectionId}:`, delErr.message);
                 }
                 await new Promise(r => setTimeout(r, 2000)); // Wait for deletion to complete
-                
+
                 // 2. Re-create collection
                 await databases.createCollection(DB_ID, collectionId, collectionName);
                 await new Promise(r => setTimeout(r, 1000));
-                
+
                 // 3. Re-create all attributes from scratch with updated sizes
                 for (const newAttr of requiredAttributes) {
                   try {
@@ -211,14 +259,14 @@ const initDB = async () => {
       { key: 'exam_id', type: 'string', size: 50, required: false },
       { key: 'question_index', type: 'integer', required: false, min: 0, max: 1000, defaultValue: 0 },
       { key: 'domain', type: 'string', size: 100, required: false },
-      { key: 'question_text', type: 'string', size: 1200, required: false },
-      { key: 'options', type: 'string', size: 800, required: false },
+      { key: 'question_text', type: 'string', size: 2000, required: false },
+      { key: 'options', type: 'string', size: 2000, required: false },
       { key: 'correct_option', type: 'string', size: 10, required: false },
       { key: 'selected_option', type: 'string', size: 10, required: false },
-      { key: 'explanation', type: 'string', size: 1500, required: false },
-      { key: 'user_explanation', type: 'string', size: 1200, required: false },
+      { key: 'explanation', type: 'string', size: 2500, required: false },
+      { key: 'user_explanation', type: 'string', size: 2000, required: false },
       { key: 'understanding_score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
-      { key: 'mentor_feedback', type: 'string', size: 1500, required: false }
+      { key: 'mentor_feedback', type: 'string', size: 2500, required: false }
     ]);
 
     console.log('✅ Appwrite Database initialization complete.');
