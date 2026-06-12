@@ -100,35 +100,59 @@ const initDB = async () => {
       await databases.createDatetimeAttribute(DB_ID, 'question_history', 'asked_at', false);
     }
 
+    const ensureAttributes = async (collectionId, requiredAttributes) => {
+      try {
+        const col = await databases.getCollection(DB_ID, collectionId);
+        const existingKeys = new Set(col.attributes.map(attr => attr.key));
+
+        for (const attr of requiredAttributes) {
+          if (!existingKeys.has(attr.key)) {
+            console.log(`Creating missing attribute ${attr.key} in ${collectionId}...`);
+            if (attr.type === 'string') {
+              await databases.createStringAttribute(DB_ID, collectionId, attr.key, attr.size, attr.required, attr.defaultValue);
+            } else if (attr.type === 'integer') {
+              await databases.createIntegerAttribute(DB_ID, collectionId, attr.key, attr.required, attr.min, attr.max, attr.defaultValue);
+            } else if (attr.type === 'boolean') {
+              await databases.createBooleanAttribute(DB_ID, collectionId, attr.key, attr.required, attr.defaultValue);
+            } else if (attr.type === 'datetime') {
+              await databases.createDatetimeAttribute(DB_ID, collectionId, attr.key, attr.required);
+            }
+            // Small sleep to prevent API race conditions
+            await new Promise(r => setTimeout(r, 100));
+          }
+        }
+      } catch (err) {
+        console.error(`Error ensuring attributes for ${collectionId}:`, err.message);
+      }
+    };
+
     // 4. Exams Collection
-    const isNewExams = await createCollectionIfNotExists('exams', 'Exams');
-    if (isNewExams) {
-      console.log('Creating attributes for exams...');
-      await databases.createStringAttribute(DB_ID, 'exams', 'user_id', 50, true);
-      await databases.createIntegerAttribute(DB_ID, 'exams', 'score', true, 0, 100, 0);
-      await databases.createStringAttribute(DB_ID, 'exams', 'status', 20, true, 'in_progress');
-      await databases.createIntegerAttribute(DB_ID, 'exams', 'time_taken', true, 0, 1000000, 0);
-      await databases.createIntegerAttribute(DB_ID, 'exams', 'total_questions', true, 0, 1000, 0);
-      await databases.createIntegerAttribute(DB_ID, 'exams', 'correct_answers', true, 0, 1000, 0);
-      await databases.createStringAttribute(DB_ID, 'exams', 'created_at', 50, true);
-    }
+    await createCollectionIfNotExists('exams', 'Exams');
+    await ensureAttributes('exams', [
+      { key: 'user_id', type: 'string', size: 50, required: true },
+      { key: 'score', type: 'integer', required: true, min: 0, max: 100, defaultValue: 0 },
+      { key: 'status', type: 'string', size: 20, required: true, defaultValue: 'in_progress' },
+      { key: 'time_taken', type: 'integer', required: true, min: 0, max: 1000000, defaultValue: 0 },
+      { key: 'total_questions', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'correct_answers', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'created_at', type: 'string', size: 50, required: true }
+    ]);
 
     // 5. Exam Questions Collection
-    const isNewExamQuestions = await createCollectionIfNotExists('exam_questions', 'Exam Questions');
-    if (isNewExamQuestions) {
-      console.log('Creating attributes for exam_questions...');
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'exam_id', 50, true);
-      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'question_index', true, 0, 1000, 0);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'domain', 100, true);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'question_text', 5000, true);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'options', 5000, true);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'correct_option', 10, true);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'selected_option', 10, false);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'explanation', 5000, true);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'user_explanation', 5000, false);
-      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'understanding_score', false, 0, 100, 0);
-      await databases.createStringAttribute(DB_ID, 'exam_questions', 'mentor_feedback', 5000, false);
-    }
+    await createCollectionIfNotExists('exam_questions', 'Exam Questions');
+    await ensureAttributes('exam_questions', [
+      { key: 'exam_id', type: 'string', size: 50, required: true },
+      { key: 'question_index', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'domain', type: 'string', size: 100, required: true },
+      { key: 'question_text', type: 'string', size: 5000, required: true },
+      { key: 'options', type: 'string', size: 5000, required: true },
+      { key: 'correct_option', type: 'string', size: 10, required: true },
+      { key: 'selected_option', type: 'string', size: 10, required: false },
+      { key: 'explanation', type: 'string', size: 5000, required: true },
+      { key: 'user_explanation', type: 'string', size: 5000, required: false },
+      { key: 'understanding_score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
+      { key: 'mentor_feedback', type: 'string', size: 5000, required: false }
+    ]);
 
     console.log('✅ Appwrite Database initialization complete.');
   } catch (err) {
