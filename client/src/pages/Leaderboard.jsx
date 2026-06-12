@@ -26,13 +26,13 @@ export default function Leaderboard() {
   );
 
   return (
-    <div style={{ maxWidth: 700, animation: 'fadeIn 0.4s ease' }}>
+    <div style={{ maxWidth: 750, animation: 'fadeIn 0.4s ease' }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, marginBottom: 6 }}>
           Leaderboard
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-          Top learners ranked by total score
+          Top performers ranked by AWS simulation exams passed and average score
         </p>
       </div>
 
@@ -57,11 +57,11 @@ export default function Leaderboard() {
       <div className="card" style={{ overflow: 'hidden' }}>
         {/* Header */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px',
+          display: 'grid', gridTemplateColumns: '50px 1fr 140px 110px 110px',
           padding: '12px 20px', borderBottom: '1px solid var(--border)',
           background: 'var(--bg-secondary)',
         }}>
-          {['#', 'Player', 'Score', 'Correct', 'Services'].map(h => (
+          {['#', 'Player', 'Exams Passed', 'Avg Score', 'Total Exams'].map(h => (
             <div key={h} style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em' }}>
               {h.toUpperCase()}
             </div>
@@ -71,16 +71,15 @@ export default function Leaderboard() {
         {data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>🌟</div>
-            <p>Be the first to get on the leaderboard!</p>
+            <p>Be the first to pass an exam and claim a rank!</p>
           </div>
         ) : (
           data.map((row, i) => {
             const isMe = row.name === user?.name;
-            const acc = row.total_attempted > 0 ? Math.round((row.total_correct / row.total_attempted) * 100) : 0;
 
             return (
               <div key={i} style={{
-                display: 'grid', gridTemplateColumns: '50px 1fr 100px 80px 80px',
+                display: 'grid', gridTemplateColumns: '50px 1fr 140px 110px 110px',
                 padding: '14px 20px',
                 borderBottom: i < data.length - 1 ? '1px solid var(--border)' : 'none',
                 background: isMe ? 'rgba(255,153,0,0.06)' : 'transparent',
@@ -114,30 +113,27 @@ export default function Leaderboard() {
                     <div style={{ fontSize: 14, fontWeight: 600, color: isMe ? 'var(--accent-orange)' : 'var(--text-primary)' }}>
                       {row.name} {isMe && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>(you)</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {acc}% accuracy
-                    </div>
                   </div>
                 </div>
 
-                {/* Score */}
+                {/* Exams Passed */}
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 15, color: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : i === 2 ? '#CD7F32' : 'var(--accent-orange)' }}>
-                    {parseInt(row.total_score).toLocaleString()}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 15, color: 'var(--accent-green)' }}>
+                    {row.exams_passed}
                   </span>
                 </div>
 
-                {/* Correct */}
+                {/* Avg Score */}
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent-green)' }}>
-                    {row.total_correct}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--accent-orange)', fontWeight: 700 }}>
+                    {row.avg_score}%
                   </span>
                 </div>
 
-                {/* Services */}
+                {/* Total Exams */}
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent-cyan)' }}>
-                    {row.services_completed}
+                    {row.total_completed}
                   </span>
                 </div>
               </div>
@@ -147,7 +143,7 @@ export default function Leaderboard() {
       </div>
 
       <p style={{ textAlign: 'center', marginTop: 16, color: 'var(--text-muted)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-        Scores update in real-time after each session
+        Scores update in real-time after each submission
       </p>
     </div>
   );

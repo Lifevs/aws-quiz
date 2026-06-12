@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 const NAV_ITEMS = [
   { path: '/dashboard', icon: '⬡', label: 'Dashboard' },
-  { path: '/services', icon: '◈', label: 'Services' },
+  { path: '/services', icon: '⚡', label: 'Exam Center' },
   { path: '/leaderboard', icon: '◎', label: 'Leaderboard' },
 ];
 
@@ -43,7 +43,7 @@ export default function Layout() {
             }}>A</div>
             <div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: 'var(--text-primary)', lineHeight: 1 }}>AWS</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent-orange)', letterSpacing: '0.1em' }}>QUIZ MASTER</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent-orange)', letterSpacing: '0.1em' }}>EXAM SIMULATOR</div>
             </div>
           </div>
         </div>

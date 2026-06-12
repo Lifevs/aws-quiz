@@ -100,6 +100,36 @@ const initDB = async () => {
       await databases.createDatetimeAttribute(DB_ID, 'question_history', 'asked_at', false);
     }
 
+    // 4. Exams Collection
+    const isNewExams = await createCollectionIfNotExists('exams', 'Exams');
+    if (isNewExams) {
+      console.log('Creating attributes for exams...');
+      await databases.createStringAttribute(DB_ID, 'exams', 'user_id', 50, true);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'score', true, 0, 100, 0);
+      await databases.createStringAttribute(DB_ID, 'exams', 'status', 20, true, 'in_progress');
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'time_taken', true, 0, 1000000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'total_questions', true, 0, 1000, 0);
+      await databases.createIntegerAttribute(DB_ID, 'exams', 'correct_answers', true, 0, 1000, 0);
+      await databases.createStringAttribute(DB_ID, 'exams', 'created_at', 50, true);
+    }
+
+    // 5. Exam Questions Collection
+    const isNewExamQuestions = await createCollectionIfNotExists('exam_questions', 'Exam Questions');
+    if (isNewExamQuestions) {
+      console.log('Creating attributes for exam_questions...');
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'exam_id', 50, true);
+      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'question_index', true, 0, 1000, 0);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'domain', 100, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'question_text', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'options', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'correct_option', 10, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'selected_option', 10, false);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'explanation', 5000, true);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'user_explanation', 5000, false);
+      await databases.createIntegerAttribute(DB_ID, 'exam_questions', 'understanding_score', false, 0, 100, 0);
+      await databases.createStringAttribute(DB_ID, 'exam_questions', 'mentor_feedback', 5000, false);
+    }
+
     console.log('✅ Appwrite Database initialization complete.');
   } catch (err) {
     console.error('❌ Database initialization error:', err.message || err);

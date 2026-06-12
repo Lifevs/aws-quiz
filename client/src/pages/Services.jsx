@@ -2,203 +2,232 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../context/AuthContext';
 
-const CATEGORIES = ['All', 'Compute', 'Serverless', 'Storage', 'Database', 'Networking', 'Messaging', 'Security', 'DevOps', 'Management', 'Analytics', 'Integration', 'Developer Tools', 'Containers'];
-
-const SERVICE_ICONS = {
-  ec2: '🖥️', ecr: '📦', ecs: '🐳', beanstalk: '🌱', lambda: 'λ',
-  elb: '⚖️', cloudfront: '🌐', kinesis: '🌊', route53: '🔀', s3: '🪣',
-  rds: '🗄️', aurora: '⚡', dynamodb: '💎', elasticache: '⚡', sqs: '📨',
-  sns: '📣', stepfunctions: '🔄', autoscaling: '📈', apigateway: '🚪', ses: '✉️',
-  cognito: '🔑', iam: '🛡️', cloudwatch: '👁️', systemsmanager: '🔧', cloudformation: '🏗️',
-  cloudtrail: '👣', codecommit: '💾', codebuild: '🔨', codedeploy: '🚀', codepipeline: '🔁',
-  xray: '🔬', kms: '🔐',
-};
-
-const DIFF_ORDER = { foundation: 0, associate: 1, advanced: 2, expert: 3 };
+const DOMAIN_DETAILS = [
+  { name: 'Domain 1: Development with AWS Services', weight: '32%', color: 'var(--accent-cyan)', focus: 'Lambda, API Gateway, DynamoDB, SNS/SQS, Kinesis, Step Functions, caching, idempotency, event-driven integrations' },
+  { name: 'Domain 2: Security', weight: '26%', color: 'var(--accent-orange)', focus: 'IAM Policies, Cognito User/Identity Pools, KMS Key management, Secrets Manager, STS AssumeRole, ACM certificate management' },
+  { name: 'Domain 3: Deployment', weight: '24%', color: 'var(--accent-green)', focus: 'SAM Templates, CDK basics, CI/CD pipelines (CodeSuite), traffic shifting, Elastic Beanstalk, ECS Fargate, CloudFormation' },
+  { name: 'Domain 4: Troubleshooting and Optimization', weight: '18%', color: 'var(--accent-purple)', focus: 'X-Ray Tracing, CloudWatch Logs/Metrics/Alarms, CloudTrail audits, API Gateway errors, CLI credential debugging' }
+];
 
 export default function Services() {
-  const [services, setServices] = useState([]);
+  const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('All');
+  const [selectedQuestions, setSelectedQuestions] = useState(65);
+  const [starting, setStarting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get('/quiz/services').then(res => {
-      setServices(res.data.services);
-    }).catch(console.error).finally(() => setLoading(false));
+    api.get('/quiz/exams')
+      .then(res => {
+        setExams(res.data.exams || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
-  const filtered = services.filter(s => {
-    const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.id.toLowerCase().includes(search.toLowerCase());
-    const matchCat = category === 'All' || s.category === category;
-    return matchSearch && matchCat;
-  });
-
-  const getAccuracy = (p) => {
-    if (!p || p.questions_attempted === 0) return null;
-    return Math.round((p.questions_correct / p.questions_attempted) * 100);
+  const handleStartExam = async () => {
+    setStarting(true);
+    try {
+      const res = await api.post('/quiz/exams/start', { totalQuestions: selectedQuestions });
+      const examId = res.data.exam.$id;
+      navigate(`/quiz/${examId}`);
+    } catch (err) {
+      alert('Failed to start exam simulation. Please try again.');
+      console.error(err);
+    } finally {
+      setStarting(false);
+    }
   };
 
-  const getDiffLabel = (p) => p?.current_difficulty || 'foundation';
+  const getAccuracy = (exam) => {
+    if (!exam || exam.total_questions === 0) return 0;
+    return exam.score;
+  };
+
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}m ${s}s`;
+  };
+
+  const formatDate = (isoString) => {
+    const d = new Date(isoString);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   if (loading) return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-      {[...Array(12)].map((_, i) => (
-        <div key={i} className="skeleton" style={{ height: 130, borderRadius: 12 }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {[...Array(6)].map((_, i) => (
+        <div key={i} className="skeleton" style={{ height: 100, borderRadius: 12 }} />
       ))}
     </div>
   );
 
   return (
-    <div style={{ maxWidth: 1100, animation: 'fadeIn 0.4s ease' }}>
+    <div style={{ maxWidth: 1000, animation: 'fadeIn 0.4s ease' }}>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 800, marginBottom: 6 }}>
-          AWS Services
+          AWS DVA-C02 Exam Center
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-          {services.length} services · Select one to start adaptive quiz
+          Prepare for the AWS Certified Developer - Associate exam using a timed simulation matching the official blueprint.
         </p>
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          className="input"
-          placeholder="Search services..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ maxWidth: 240, padding: '9px 14px', fontSize: 13 }}
-        />
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {CATEGORIES.map(cat => (
-            <button key={cat} onClick={() => setCategory(cat)}
-              style={{
-                padding: '6px 12px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 12,
-                transition: 'all 0.2s',
-                background: category === cat ? 'var(--accent-orange)' : 'var(--bg-card)',
-                color: category === cat ? '#000' : 'var(--text-secondary)',
-                border: category === cat ? 'none' : '1px solid var(--border)',
-              }}>{cat}
-            </button>
-          ))}
-        </div>
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
+        
+        {/* Left: Setup Card */}
+        <div className="card" style={{ padding: '24px' }}>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)' }}>
+            Configure New Exam Simulation
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
+            Select your preferred simulation size. All questions are dynamically selected from domains based on authentic DVA-C02 weights.
+          </p>
 
-      {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        {[
-          { label: 'Not Started', count: services.filter(s => !s.progress).length, color: 'var(--text-muted)' },
-          { label: 'In Progress', count: services.filter(s => s.progress && !s.progress.is_completed).length, color: 'var(--accent-orange)' },
-          { label: 'Completed', count: services.filter(s => s.progress?.is_completed).length, color: 'var(--accent-green)' },
-        ].map(stat => (
-          <div key={stat.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: stat.color }} />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', color: stat.color, fontWeight: 700 }}>{stat.count}</span> {stat.label}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Service grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
-        {filtered.map(svc => {
-          const acc = getAccuracy(svc.progress);
-          const diff = getDiffLabel(svc.progress);
-          const attempted = svc.progress?.questions_attempted || 0;
-          const score = svc.progress?.total_score || 0;
-          const hasProgress = !!svc.progress;
-          const progressPct = Math.min((attempted / 10) * 100, 100);
-
-          return (
-            <div key={svc.id}
-              className="card"
-              onClick={() => navigate(`/quiz/${svc.id}`)}
-              style={{
-                padding: '18px 20px', cursor: 'pointer',
-                borderColor: hasProgress ? 'var(--border-bright)' : 'var(--border)',
-                position: 'relative', overflow: 'hidden',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = svc.color || 'var(--accent-orange)';
-                e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.3)`;
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = hasProgress ? 'var(--border-bright)' : 'var(--border)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              {/* Color accent strip */}
-              <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-                background: hasProgress ? (svc.color || 'var(--accent-orange)') : 'transparent',
-                transition: 'background 0.2s',
-              }} />
-
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10,
-                  background: `${svc.color}18`,
-                  border: `1px solid ${svc.color}40`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 18, flexShrink: 0,
-                }}>
-                  {SERVICE_ICONS[svc.id] || '☁️'}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+            {[
+              { count: 10, label: 'Quick Quiz', time: '20 minutes', desc: 'Ideal for a fast checkpoint' },
+              { count: 20, label: 'Practice Test', time: '40 minutes', desc: 'Good mid-length review' },
+              { count: 65, label: 'Full Simulator', time: '130 minutes', desc: 'Authentic DVA-C02 simulation' }
+            ].map(opt => (
+              <div
+                key={opt.count}
+                onClick={() => setSelectedQuestions(opt.count)}
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: 10,
+                  border: `2px solid ${selectedQuestions === opt.count ? 'var(--accent-orange)' : 'var(--border)'}`,
+                  background: selectedQuestions === opt.count ? 'rgba(255,153,0,0.05)' : 'var(--bg-secondary)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {opt.label} ({opt.count} Questions)
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{opt.desc}</div>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2, lineHeight: 1.3 }}>
-                    {svc.name}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {svc.category}
-                  </div>
+                <div style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: selectedQuestions === opt.count ? 'var(--accent-orange)' : 'var(--text-secondary)',
+                  background: 'var(--bg-primary)',
+                  padding: '4px 10px',
+                  borderRadius: 6
+                }}>
+                  {opt.time}
                 </div>
               </div>
+            ))}
+          </div>
 
-              {hasProgress ? (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span className={`tag tag-${diff}`}>{diff}</span>
-                    <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent-orange)', fontWeight: 700 }}>
-                      {score}pts
-                    </span>
+          <button
+            onClick={handleStartExam}
+            disabled={starting}
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '14px', fontSize: 15, justifyContent: 'center' }}
+          >
+            {starting ? 'Launching...' : 'Start Timed Exam Simulation 🚀'}
+          </button>
+        </div>
+
+        {/* Right: Domain Info Card */}
+        <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+            DVA-C02 Exam Blueprint
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {DOMAIN_DETAILS.map(dom => (
+              <div key={dom.name} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {dom.name}
                   </div>
-                  <div className="progress-bar" style={{ marginBottom: 6 }}>
-                    <div className="progress-fill" style={{
-                      width: `${progressPct}%`,
-                      background: svc.color || 'var(--accent-orange)',
-                      opacity: 0.8,
-                    }} />
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 800, color: dom.color }}>
+                    {dom.weight}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    <span>{attempted} questions</span>
-                    {acc !== null && <span>{acc}% acc</span>}
-                  </div>
-                </>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-muted)' }} />
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Not started</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  {dom.focus}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-          <p>No services found for "{search}"</p>
-        </div>
-      )}
+      {/* Past attempts list */}
+      <div className="card" style={{ padding: '24px' }}>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 18 }}>
+          Simulation Exam History
+        </h3>
+        {exams.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 600 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+                  {['Date', 'Questions', 'Status', 'Score', 'Time Taken', 'Action'].map(h => (
+                    <th key={h} style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontWeight: 700, paddingBottom: 12 }}>
+                      {h.toUpperCase()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {exams.map(ex => {
+                  const isPassed = ex.status === 'pass';
+                  const isInProgress = ex.status === 'in_progress';
+                  return (
+                    <tr key={ex.$id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
+                      <td style={{ fontSize: 13, padding: '14px 0', color: 'var(--text-primary)' }}>
+                        {formatDate(ex.created_at)}
+                      </td>
+                      <td style={{ fontSize: 13, padding: '14px 0', color: 'var(--text-primary)' }}>
+                        {ex.total_questions} Questions
+                      </td>
+                      <td style={{ fontSize: 13, padding: '14px 0' }}>
+                        {isInProgress ? (
+                          <span className="tag tag-foundation" style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>IN PROGRESS</span>
+                        ) : isPassed ? (
+                          <span className="tag tag-foundation" style={{ background: 'rgba(0,255,136,0.1)', color: 'var(--accent-green)', border: '1px solid rgba(0,255,136,0.2)' }}>PASS</span>
+                        ) : (
+                          <span className="tag tag-expert" style={{ background: 'rgba(255,68,68,0.1)', color: 'var(--accent-red)', border: '1px solid rgba(255,68,68,0.2)' }}>FAIL</span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 14, padding: '14px 0', fontFamily: 'var(--font-mono)', fontWeight: 700, color: isInProgress ? 'var(--text-muted)' : (isPassed ? 'var(--accent-green)' : 'var(--accent-red)') }}>
+                        {isInProgress ? '–' : `${ex.score}%`}
+                      </td>
+                      <td style={{ fontSize: 13, padding: '14px 0', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                        {isInProgress ? '–' : formatTime(ex.time_taken)}
+                      </td>
+                      <td style={{ padding: '14px 0' }}>
+                        <button
+                          onClick={() => navigate(`/quiz/${ex.$id}`)}
+                          className={`btn ${isInProgress ? 'btn-primary' : 'btn-ghost'}`}
+                          style={{ fontSize: 12, padding: '6px 12px' }}
+                        >
+                          {isInProgress ? 'Resume' : 'Review'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)' }}>
+            📋 No previous exam simulations found. Let's start one above!
+          </div>
+        )}
+      </div>
     </div>
   );
 }
