@@ -23,11 +23,7 @@ export default function Quiz() {
   const [selectedAnswer, setSelectedAnswer] = useState('');
   const [flaggedQuestions, setFlaggedQuestions] = useState({}); // { [index]: true }
 
-  // Review & AI Mentor state
-  const [userExplanation, setUserExplanation] = useState('');
-  const [evaluationText, setEvaluationText] = useState('');
-  const [understandingScore, setUnderstandingScore] = useState(null);
-  const [isEvaluating, setIsEvaluating] = useState(false);
+  // Review state
 
   // Load exam and initial questions
   const fetchExam = useCallback(async () => {
@@ -102,20 +98,9 @@ export default function Quiz() {
   useEffect(() => {
     if (!exam) return;
 
-    // Clear AI mentor states on index change
-    setUserExplanation('');
-    setEvaluationText('');
-    setUnderstandingScore(null);
-    setIsEvaluating(false);
-
     // If already loaded in state, set local answer
     if (questions[currentIndex]) {
       setSelectedAnswer(questions[currentIndex].selected_option || '');
-      // If AI mentor feedback exists, load it
-      if (questions[currentIndex].mentor_feedback) {
-        setEvaluationText(questions[currentIndex].mentor_feedback);
-        setUnderstandingScore(questions[currentIndex].understanding_score);
-      }
       return;
     }
 
@@ -126,10 +111,6 @@ export default function Quiz() {
         const q = res.data.question;
         setQuestions(prev => ({ ...prev, [currentIndex]: q }));
         setSelectedAnswer(q.selected_option || '');
-        if (q.mentor_feedback) {
-          setEvaluationText(q.mentor_feedback);
-          setUnderstandingScore(q.understanding_score);
-        }
       })
       .catch(err => {
         console.error(err);
@@ -204,64 +185,7 @@ export default function Quiz() {
     }
   };
 
-  // Submit Explanation to AI Mentor (Review mode only)
-  const handleMentorEvaluate = async () => {
-    const q = questions[currentIndex];
-    if (!q || !userExplanation.trim() || isEvaluating) return;
 
-    setIsEvaluating(true);
-    setEvaluationText('');
-    setUnderstandingScore(null);
-
-    try {
-      const response = await fetch(`${api.defaults.baseURL}/quiz/exams/${examId}/questions/${currentIndex}/evaluate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': api.defaults.headers.common['Authorization'] || `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ userExplanation })
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let done = false;
-      let fullText = '';
-
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        done = readerDone;
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          fullText += chunk;
-          
-          const scoreMatch = fullText.match(/\[\[SCORE:\s*(\d+)\]\]/);
-          if (scoreMatch) {
-            setUnderstandingScore(parseInt(scoreMatch[1], 10));
-            setEvaluationText(fullText.replace(/\[\[SCORE:\s*\d+\]\]/, '').trim());
-          } else {
-            setEvaluationText(fullText);
-          }
-        }
-      }
-      setIsEvaluating(false);
-
-      // Cache evaluation details in state questions map
-      setQuestions(prev => ({
-        ...prev,
-        [currentIndex]: {
-          ...prev[currentIndex],
-          user_explanation: userExplanation,
-          understanding_score: parseInt(fullText.match(/\[\[SCORE:\s*(\d+)\]\]/)?.[1] || '0', 10),
-          mentor_feedback: fullText.replace(/\[\[SCORE:\s*\d+\]\]/, '').trim()
-        }
-      }));
-    } catch (err) {
-      console.error('Mentor evaluation error:', err);
-      setIsEvaluating(false);
-      setEvaluationText('Error connecting to the AI mentor.');
-    }
-  };
 
   // Helper formatting functions
   const formatTime = (secs) => {
@@ -750,7 +674,7 @@ export default function Quiz() {
                 })}
               </div>
 
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
                 <button
                   disabled={currentIndex === 0}
                   onClick={() => setCurrentIndex(prev => prev - 1)}
@@ -766,96 +690,40 @@ export default function Quiz() {
                   Next
                 </button>
               </div>
-            </div>
 
-            {/* AI Mentor evaluation details */}
-            <div className="evaluation-board card" style={{ padding: '24px' }}>
-              <div style={{ textAlign: 'center' }}>
-                <h3 className="display" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>AI Mentor Evaluation</h3>
-                <p style={{ color: 'var(--text-secondary)' }}>Review your understanding. Write down your logic for this answer and get scored!</p>
-              </div>
-
-              <div className="speedometer-container" style={{ position: 'relative', width: 200, height: 100, margin: '20px auto 10px' }}>
-                <svg width="200" height="100" viewBox="0 0 200 100">
-                  <defs>
-                    <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="var(--accent-red)" />
-                      <stop offset="50%" stopColor="var(--accent-orange)" />
-                      <stop offset="100%" stopColor="var(--accent-green)" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="var(--bg-secondary)" strokeWidth="20" />
-                  <path d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="url(#arcGrad)" strokeWidth="20" />
-                </svg>
-                <div 
-                  style={{
-                    position: 'absolute', bottom: 0, left: '50%',
-                    width: 4, height: 75, background: 'white',
-                    transformOrigin: 'bottom center',
-                    transform: `translateX(-50%) rotate(${understandingScore !== null ? (understandingScore / 100) * 180 - 90 : -90}deg)`,
-                    transition: 'transform 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    borderRadius: 2, zIndex: 2
-                  }}
-                >
-                  <div style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', width: 16, height: 16, borderRadius: '50%', background: 'white' }} />
-                </div>
-                <div className="speedometer-score" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, textAlign: 'center', zIndex: 3 }}>
-                  <div className="speedometer-score-val" style={{ fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
-                    {understandingScore !== null ? understandingScore : '--'}
+              {/* AWS Skill Builder Explanation Sheet Style */}
+              {questions[currentIndex].explanation && (
+                <div style={{
+                  marginTop: 24,
+                  padding: '20px',
+                  borderRadius: 10,
+                  background: 'rgba(255, 153, 0, 0.03)',
+                  borderLeft: '4px solid var(--accent-orange)',
+                  animation: 'fadeIn 0.3s ease'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <span style={{ fontSize: 16 }}>📖</span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      color: 'var(--accent-orange)',
+                      letterSpacing: '0.05em'
+                    }}>
+                      OFFICIAL EXPLANATION
+                    </span>
                   </div>
-                  <div className="speedometer-score-label" style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Understanding</div>
-                </div>
-              </div>
-
-              <div className="evaluation-analysis" style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 10, fontSize: 13.5, lineHeight: 1.5, marginBottom: 20 }}>
-                {evaluationText || 'Reviewing explanations aids retention. Submit your reasoning below to activate AI assessment.'}
-                {isEvaluating && <span className="typing-cursor"></span>}
-              </div>
-
-              {understandingScore === null && !isEvaluating && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <textarea
-                    placeholder="Provide your thought process. Explain why you picked your choice and why the distractors are wrong..."
-                    value={userExplanation}
-                    onChange={e => setUserExplanation(e.target.value)}
-                    style={{
-                      width: '100%',
-                      minHeight: 80,
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 10,
-                      padding: 12,
-                      color: 'white',
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5
-                    }}
-                  />
-                  <button
-                    onClick={handleMentorEvaluate}
-                    disabled={!userExplanation.trim()}
-                    className="btn btn-primary"
-                    style={{ alignSelf: 'flex-end', fontSize: 13 }}
-                  >
-                    Submit to AI Mentor
-                  </button>
+                  <div style={{
+                    fontSize: 13.5,
+                    lineHeight: 1.6,
+                    color: 'var(--text-secondary)',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {questions[currentIndex].explanation}
+                  </div>
                 </div>
               )}
             </div>
-
-            {/* Answer Explanation Card */}
-            {questions[currentIndex].explanation && (
-              <div className="card quiz-card alt quiz-explanation" style={{ padding: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <span style={{ fontSize: 16 }}>📖</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent-orange)' }}>
-                    EXPLANATION
-                  </span>
-                </div>
-                <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
-                  {questions[currentIndex].explanation}
-                </p>
-              </div>
-            )}
 
           </div>
         ) : (
