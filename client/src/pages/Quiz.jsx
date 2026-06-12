@@ -43,9 +43,9 @@ export default function Quiz() {
           domain: q.domain,
           question: q.question_text,
           options: JSON.parse(q.options),
-          correct: examData.status === 'completed' ? q.correct_option : undefined,
+          correct: examData.status !== 'in_progress' ? q.correct_option : undefined,
           selected_option: q.selected_option,
-          explanation: examData.status === 'completed' ? q.explanation : undefined,
+          explanation: examData.status !== 'in_progress' ? q.explanation : undefined,
           user_explanation: q.user_explanation,
           understanding_score: q.understanding_score,
           mentor_feedback: q.mentor_feedback
@@ -123,7 +123,7 @@ export default function Quiz() {
 
   // Handle Answer Selection
   const handleSelectOption = async (option) => {
-    if (!exam || exam.status === 'completed') return;
+    if (!exam || exam.status !== 'in_progress') return;
 
     setSelectedAnswer(option);
     

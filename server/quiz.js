@@ -183,9 +183,9 @@ router.get('/exams/:examId/questions/:index', authenticateToken, async (req, res
           domain: q.domain,
           question: q.question_text,
           options: JSON.parse(q.options),
-          correct: exam.status === 'completed' ? q.correct_option : undefined, // Hide correct answer if exam is active
+          correct: exam.status !== 'in_progress' ? q.correct_option : undefined, // Hide correct answer if exam is active
           selected_option: q.selected_option,
-          explanation: exam.status === 'completed' ? q.explanation : undefined,
+          explanation: exam.status !== 'in_progress' ? q.explanation : undefined,
           user_explanation: q.user_explanation,
           understanding_score: q.understanding_score,
           mentor_feedback: q.mentor_feedback
@@ -284,9 +284,9 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
         domain: savedQ.domain,
         question: savedQ.question_text,
         options: questionData.options,
-        correct: exam.status === 'completed' ? savedQ.correct_option : undefined,
+        correct: exam.status !== 'in_progress' ? savedQ.correct_option : undefined,
         selected_option: savedQ.selected_option,
-        explanation: exam.status === 'completed' ? savedQ.explanation : undefined
+        explanation: exam.status !== 'in_progress' ? savedQ.explanation : undefined
       },
       examStatus: exam.status
     });
@@ -310,7 +310,7 @@ router.post('/exams/:examId/questions/:index/answer', authenticateToken, async (
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    if (exam.status === 'completed') {
+    if (exam.status !== 'in_progress') {
       return res.status(400).json({ error: 'Exam is already submitted and locked.' });
     }
 
@@ -347,7 +347,7 @@ router.post('/exams/:examId/submit', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    if (exam.status === 'completed') {
+    if (exam.status !== 'in_progress') {
       return res.json({ exam });
     }
 
