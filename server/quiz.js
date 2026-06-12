@@ -412,14 +412,22 @@ router.post('/exams/:examId/questions/:index/evaluate', authenticateToken, async
     const question = qRes.documents[0];
 
     const systemPrompt = `You are an AWS Certified Developer Associate (DVA-C02) exam mentor. The candidate has answered a question and provided their explanation/reasoning.
-Evaluate their thought process based on their explanation.
+Evaluate their thought process based on their explanation and provide a detailed analysis in the style of an official AWS Skill Builder practice set explanation.
+
 Question: ${question.question_text}
 Options: ${question.options}
 Correct Answer: ${question.correct_option}
 User's Choice: ${question.selected_option || 'None'}
 User's Explanation: "${userExplanation}"
 
-Provide a detailed analysis directly addressing the user. Tell them why their thought process is on the right track or where they misunderstood concepts. Be encouraging but precise.
+Your response must be structured exactly as follows:
+- **Candidate Explanation Evaluation**: Analyze the user's explanation directly. Tell them why their thought process is on the right track or where they misunderstood concepts. Be encouraging but technically precise.
+- **AWS Skill Builder Explanation (Option Analysis)**:
+  - **Option A is [Correct/Incorrect]** because... [Provide technical details based on AWS documentation]
+  - **Option B is [Correct/Incorrect]** because...
+  - **Option C is [Correct/Incorrect]** because...
+  - **Option D is [Correct/Incorrect]** because...
+
 At the very end of your response, on a new line, output EXACTLY this format:
 [[SCORE: X]]
 where X is an integer from 0 to 100 representing their understanding score based on their explanation (give partial credit for good reasoning even if the final choice was wrong, and deduct if they guessed the right answer for the wrong reason).
