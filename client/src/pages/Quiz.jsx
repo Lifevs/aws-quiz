@@ -264,7 +264,7 @@ export default function Quiz() {
   };
 
   // Helper formatting functions
-  const formatTimer = (secs) => {
+  const formatTime = (secs) => {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
@@ -419,7 +419,7 @@ export default function Quiz() {
                 borderRadius: 8,
                 border: `1px solid ${secondsLeft < 300 ? 'rgba(255,68,68,0.2)' : 'var(--border)'}`
               }}>
-                {secondsLeft !== null ? formatTimer(secondsLeft) : '--:--:--'}
+                {secondsLeft !== null ? formatTime(secondsLeft) : '--:--:--'}
               </span>
             </div>
           </div>
