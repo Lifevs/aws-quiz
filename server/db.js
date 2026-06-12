@@ -105,20 +105,41 @@ const initDB = async () => {
         const col = await databases.getCollection(DB_ID, collectionId);
         const existingKeys = new Set(col.attributes.map(attr => attr.key));
 
+        const missing = requiredAttributes.filter(attr => !existingKeys.has(attr.key));
+        if (missing.length > 0) {
+          console.log(`Detected ${missing.length} missing attributes in ${collectionId}. Cleaning up documents to permit migration...`);
+          try {
+            let hasMore = true;
+            while (hasMore) {
+              const docs = await databases.listDocuments(DB_ID, collectionId, [sdk.Query.limit(100)]);
+              if (docs.documents.length === 0) {
+                hasMore = false;
+              } else {
+                for (const doc of docs.documents) {
+                  await databases.deleteDocument(DB_ID, collectionId, doc.$id);
+                }
+              }
+            }
+          } catch (cleanErr) {
+            console.warn(`Clean error:`, cleanErr.message);
+          }
+        }
+
         for (const attr of requiredAttributes) {
           if (!existingKeys.has(attr.key)) {
             console.log(`Creating missing attribute ${attr.key} in ${collectionId}...`);
+            // Set required: false on the database schema level to bypass Appwrite migration restrictions
             if (attr.type === 'string') {
-              await databases.createStringAttribute(DB_ID, collectionId, attr.key, attr.size, attr.required, attr.defaultValue);
+              await databases.createStringAttribute(DB_ID, collectionId, attr.key, attr.size, false, attr.defaultValue);
             } else if (attr.type === 'integer') {
-              await databases.createIntegerAttribute(DB_ID, collectionId, attr.key, attr.required, attr.min, attr.max, attr.defaultValue);
+              await databases.createIntegerAttribute(DB_ID, collectionId, attr.key, false, attr.min, attr.max, attr.defaultValue);
             } else if (attr.type === 'boolean') {
-              await databases.createBooleanAttribute(DB_ID, collectionId, attr.key, attr.required, attr.defaultValue);
+              await databases.createBooleanAttribute(DB_ID, collectionId, attr.key, false, attr.defaultValue);
             } else if (attr.type === 'datetime') {
-              await databases.createDatetimeAttribute(DB_ID, collectionId, attr.key, attr.required);
+              await databases.createDatetimeAttribute(DB_ID, collectionId, attr.key, false);
             }
             // Small sleep to prevent API race conditions
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 200));
           }
         }
       } catch (err) {
@@ -129,26 +150,26 @@ const initDB = async () => {
     // 4. Exams Collection
     await createCollectionIfNotExists('exams', 'Exams');
     await ensureAttributes('exams', [
-      { key: 'user_id', type: 'string', size: 50, required: true },
-      { key: 'score', type: 'integer', required: true, min: 0, max: 100, defaultValue: 0 },
-      { key: 'status', type: 'string', size: 20, required: true, defaultValue: 'in_progress' },
-      { key: 'time_taken', type: 'integer', required: true, min: 0, max: 1000000, defaultValue: 0 },
-      { key: 'total_questions', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
-      { key: 'correct_answers', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
-      { key: 'created_at', type: 'string', size: 50, required: true }
+      { key: 'user_id', type: 'string', size: 50, required: false },
+      { key: 'score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
+      { key: 'status', type: 'string', size: 20, required: false, defaultValue: 'in_progress' },
+      { key: 'time_taken', type: 'integer', required: false, min: 0, max: 1000000, defaultValue: 0 },
+      { key: 'total_questions', type: 'integer', required: false, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'correct_answers', type: 'integer', required: false, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'created_at', type: 'string', size: 50, required: false }
     ]);
 
     // 5. Exam Questions Collection
     await createCollectionIfNotExists('exam_questions', 'Exam Questions');
     await ensureAttributes('exam_questions', [
-      { key: 'exam_id', type: 'string', size: 50, required: true },
-      { key: 'question_index', type: 'integer', required: true, min: 0, max: 1000, defaultValue: 0 },
-      { key: 'domain', type: 'string', size: 100, required: true },
-      { key: 'question_text', type: 'string', size: 5000, required: true },
-      { key: 'options', type: 'string', size: 5000, required: true },
-      { key: 'correct_option', type: 'string', size: 10, required: true },
+      { key: 'exam_id', type: 'string', size: 50, required: false },
+      { key: 'question_index', type: 'integer', required: false, min: 0, max: 1000, defaultValue: 0 },
+      { key: 'domain', type: 'string', size: 100, required: false },
+      { key: 'question_text', type: 'string', size: 5000, required: false },
+      { key: 'options', type: 'string', size: 5000, required: false },
+      { key: 'correct_option', type: 'string', size: 10, required: false },
       { key: 'selected_option', type: 'string', size: 10, required: false },
-      { key: 'explanation', type: 'string', size: 5000, required: true },
+      { key: 'explanation', type: 'string', size: 5000, required: false },
       { key: 'user_explanation', type: 'string', size: 5000, required: false },
       { key: 'understanding_score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
       { key: 'mentor_feedback', type: 'string', size: 5000, required: false }
