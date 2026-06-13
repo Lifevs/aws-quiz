@@ -89,112 +89,49 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// 2. Start a new exam session
-router.post('/exams/start', authenticateToken, async (req, res) => {
-  const { totalQuestions = 65 } = req.body;
-  log('POST', '/exams/start', `User: ${req.user.id}, Questions: ${totalQuestions}`);
+// Global locks for question generation to prevent race conditions
+const generatingLocks = {};
 
-  try {
-    const exam = await databases.createDocument(DB_ID, 'exams', sdk.ID.unique(), {
-      user_id: String(req.user.id),
-      score: 0,
-      status: 'in_progress',
-      time_taken: 0,
-      total_questions: parseInt(totalQuestions, 10),
-      correct_answers: 0,
-      created_at: new Date().toISOString()
-    });
+// Helper to retrieve a question or generate it if it doesn't exist yet (fully locked)
+const getOrGenerateQuestion = async (examId, questionIndex, examStatus) => {
+  const lockKey = `${examId}_${questionIndex}`;
 
-    res.json({ exam });
-  } catch (err) {
-    log('ERROR', '/exams/start', err.stack);
-    res.status(500).json({ error: 'Failed to start exam simulation' });
+  // 1. Wait for active generation if there's a lock
+  if (generatingLocks[lockKey]) {
+    log('LOCK', 'getOrGenerateQuestion', `Waiting for active generation: ${lockKey}`);
+    await generatingLocks[lockKey];
   }
-});
 
-// 3. Get list of user exams
-router.get('/exams', authenticateToken, async (req, res) => {
-  log('GET', '/exams', `User: ${req.user.id}`);
-  try {
-    const examsRes = await databases.listDocuments(DB_ID, 'exams', [
-      sdk.Query.equal('user_id', String(req.user.id)),
-      sdk.Query.limit(100),
-      sdk.Query.orderDesc('created_at')
-    ]);
-    res.json({ exams: examsRes.documents });
-  } catch (err) {
-    log('ERROR', '/exams', err.message);
-    res.status(500).json({ error: 'Server error' });
+  // 2. Check DB
+  const existingQRes = await databases.listDocuments(DB_ID, 'exam_questions', [
+    sdk.Query.equal('exam_id', examId),
+    sdk.Query.equal('question_index', questionIndex)
+  ]);
+
+  if (existingQRes.documents.length > 0) {
+    const q = existingQRes.documents[0];
+    return {
+      $id: q.$id,
+      question_index: q.question_index,
+      domain: q.domain,
+      question: q.question_text,
+      options: JSON.parse(q.options),
+      correct: (examStatus !== 'in_progress' || q.selected_option) ? q.correct_option : undefined,
+      selected_option: q.selected_option,
+      explanation: (examStatus !== 'in_progress' || q.selected_option) ? q.explanation : undefined,
+      user_explanation: q.user_explanation,
+      understanding_score: q.understanding_score,
+      mentor_feedback: q.mentor_feedback
+    };
   }
-});
 
-// 4. Get a specific exam by ID
-router.get('/exams/:examId', authenticateToken, async (req, res) => {
-  const { examId } = req.params;
-  log('GET', `/exams/${examId}`, `User: ${req.user.id}`);
-  try {
-    const exam = await databases.getDocument(DB_ID, 'exams', examId);
-    if (exam.user_id !== String(req.user.id)) {
-      return res.status(403).json({ error: 'Unauthorized access to this exam.' });
-    }
-    
-    // Fetch all answered questions for this exam
-    const questionsRes = await databases.listDocuments(DB_ID, 'exam_questions', [
-      sdk.Query.equal('exam_id', examId),
-      sdk.Query.limit(100),
-      sdk.Query.orderAsc('question_index')
-    ]);
-
-    res.json({ exam, questions: questionsRes.documents });
-  } catch (err) {
-    log('ERROR', `/exams/${examId}`, err.message);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// 5. Get or generate question X of an exam
-router.get('/exams/:examId/questions/:index', authenticateToken, async (req, res) => {
-  const { examId, index } = req.params;
-  const questionIndex = parseInt(index, 10);
-  log('GET', `/exams/${examId}/questions/${index}`, `User: ${req.user.id}`);
+  // 3. Create lock promise
+  let resolveLock;
+  generatingLocks[lockKey] = new Promise(resolve => {
+    resolveLock = resolve;
+  });
 
   try {
-    const exam = await databases.getDocument(DB_ID, 'exams', examId);
-    if (exam.user_id !== String(req.user.id)) {
-      return res.status(403).json({ error: 'Unauthorized access' });
-    }
-
-    if (questionIndex < 0 || questionIndex >= exam.total_questions) {
-      return res.status(400).json({ error: 'Invalid question index' });
-    }
-
-    // 1. Check if the question already exists in database
-    const existingQRes = await databases.listDocuments(DB_ID, 'exam_questions', [
-      sdk.Query.equal('exam_id', examId),
-      sdk.Query.equal('question_index', questionIndex)
-    ]);
-
-    if (existingQRes.documents.length > 0) {
-      const q = existingQRes.documents[0];
-      return res.json({
-        question: {
-          $id: q.$id,
-          question_index: q.question_index,
-          domain: q.domain,
-          question: q.question_text,
-          options: JSON.parse(q.options),
-          correct: (exam.status !== 'in_progress' || q.selected_option) ? q.correct_option : undefined, // Hide correct answer if exam is active and unanswered
-          selected_option: q.selected_option,
-          explanation: (exam.status !== 'in_progress' || q.selected_option) ? q.explanation : undefined,
-          user_explanation: q.user_explanation,
-          understanding_score: q.understanding_score,
-          mentor_feedback: q.mentor_feedback
-        },
-        examStatus: exam.status
-      });
-    }
-
-    // 2. Generate new question using Groq and DVA-C02 constraints
     const targetDomain = selectRandomDomain();
     log('AI_START', `Generate Question`, `Exam: ${examId}, Index: ${questionIndex}, Domain: ${targetDomain.name}`);
 
@@ -263,19 +200,12 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
     const responseText = completion.choices[0]?.message?.content || "";
     log('AI_END', `Generate Question`, 'Response received from Groq.');
 
-    let questionData;
-    try {
-      questionData = JSON.parse(responseText);
-    } catch (e) {
-      log('PARSE_ERROR', `Generate Question`, 'AI response was not valid JSON', responseText);
-      return res.status(500).json({ error: 'Failed to parse question from AI' });
-    }
+    let questionData = JSON.parse(responseText);
 
     const explanationValue = typeof questionData.explanation === 'object' 
       ? JSON.stringify(questionData.explanation) 
       : JSON.stringify({ overall: questionData.explanation || '', options: null });
 
-    // Save generated question to DB
     const savedQ = await databases.createDocument(DB_ID, 'exam_questions', sdk.ID.unique(), {
       exam_id: examId,
       question_index: questionIndex,
@@ -283,24 +213,140 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
       question_text: questionData.question,
       options: JSON.stringify(questionData.options),
       correct_option: questionData.correct,
-      selected_option: '', // unanswered initially
+      selected_option: '',
       explanation: explanationValue,
       user_explanation: '',
       understanding_score: 0,
       mentor_feedback: ''
     });
 
+    resolveLock();
+    delete generatingLocks[lockKey];
+
+    return {
+      $id: savedQ.$id,
+      question_index: questionIndex,
+      domain: savedQ.domain,
+      question: savedQ.question_text,
+      options: questionData.options,
+      correct: (examStatus !== 'in_progress' || savedQ.selected_option) ? savedQ.correct_option : undefined,
+      selected_option: savedQ.selected_option,
+      explanation: (examStatus !== 'in_progress' || savedQ.selected_option) ? savedQ.explanation : undefined
+    };
+  } catch (err) {
+    resolveLock();
+    delete generatingLocks[lockKey];
+    throw err;
+  }
+};
+
+// Pregenerates a window of questions in the background
+const triggerBackgroundPregen = (examId, startIndex, totalQuestions, examStatus = 'in_progress') => {
+  const windowSize = 5;
+  const endIndex = Math.min(startIndex + windowSize, totalQuestions);
+
+  log('PREGEN', `Triggering background pregen for exam ${examId} from index ${startIndex} to ${endIndex - 1}`);
+
+  for (let idx = startIndex; idx < endIndex; idx++) {
+    getOrGenerateQuestion(examId, idx, examStatus)
+      .then(() => log('PREGEN_SUCCESS', `Background pregen index ${idx} complete for exam ${examId}`))
+      .catch(err => console.error(`[Background Pregen Error] Index ${idx} on exam ${examId}:`, err.message));
+  }
+};
+
+// 2. Start a new exam session
+router.post('/exams/start', authenticateToken, async (req, res) => {
+  const { totalQuestions = 65 } = req.body;
+  const numQuestions = parseInt(totalQuestions, 10);
+  log('POST', '/exams/start', `User: ${req.user.id}, Questions: ${numQuestions}`);
+
+  try {
+    const exam = await databases.createDocument(DB_ID, 'exams', sdk.ID.unique(), {
+      user_id: String(req.user.id),
+      score: 0,
+      status: 'in_progress',
+      time_taken: 0,
+      total_questions: numQuestions,
+      correct_answers: 0,
+      created_at: new Date().toISOString()
+    });
+
+    // Pregenerate first batch of questions in background immediately (first 5 questions)
+    triggerBackgroundPregen(exam.$id, 0, numQuestions, 'in_progress');
+
+    res.json({ exam });
+  } catch (err) {
+    log('ERROR', '/exams/start', err.stack);
+    res.status(500).json({ error: 'Failed to start exam simulation' });
+  }
+});
+
+// 3. Get list of user exams
+router.get('/exams', authenticateToken, async (req, res) => {
+  log('GET', '/exams', `User: ${req.user.id}`);
+  try {
+    const examsRes = await databases.listDocuments(DB_ID, 'exams', [
+      sdk.Query.equal('user_id', String(req.user.id)),
+      sdk.Query.limit(100),
+      sdk.Query.orderDesc('created_at')
+    ]);
+    res.json({ exams: examsRes.documents });
+  } catch (err) {
+    log('ERROR', '/exams', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 4. Get a specific exam by ID
+router.get('/exams/:examId', authenticateToken, async (req, res) => {
+  const { examId } = req.params;
+  log('GET', `/exams/${examId}`, `User: ${req.user.id}`);
+  try {
+    const exam = await databases.getDocument(DB_ID, 'exams', examId);
+    if (exam.user_id !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Unauthorized access to this exam.' });
+    }
+    
+    // Fetch all answered questions for this exam
+    const questionsRes = await databases.listDocuments(DB_ID, 'exam_questions', [
+      sdk.Query.equal('exam_id', examId),
+      sdk.Query.limit(100),
+      sdk.Query.orderAsc('question_index')
+    ]);
+
+    res.json({ exam, questions: questionsRes.documents });
+  } catch (err) {
+    log('ERROR', `/exams/${examId}`, err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 5. Get or generate question X of an exam
+router.get('/exams/:examId/questions/:index', authenticateToken, async (req, res) => {
+  const { examId, index } = req.params;
+  const questionIndex = parseInt(index, 10);
+  log('GET', `/exams/${examId}/questions/${index}`, `User: ${req.user.id}`);
+
+  try {
+    const exam = await databases.getDocument(DB_ID, 'exams', examId);
+    if (exam.user_id !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Unauthorized access' });
+    }
+
+    if (questionIndex < 0 || questionIndex >= exam.total_questions) {
+      return res.status(400).json({ error: 'Invalid question index' });
+    }
+
+    // Get or generate this question
+    const question = await getOrGenerateQuestion(examId, questionIndex, exam.status);
+
+    // Trigger pregeneration for the next 5 questions in the background
+    if (exam.status === 'in_progress') {
+      triggerBackgroundPregen(examId, questionIndex + 1, exam.total_questions, exam.status);
+    }
+
     res.json({
-      question: {
-        $id: savedQ.$id,
-        question_index: questionIndex,
-        domain: savedQ.domain,
-        question: savedQ.question_text,
-        options: questionData.options,
-        correct: (exam.status !== 'in_progress' || savedQ.selected_option) ? savedQ.correct_option : undefined,
-        selected_option: savedQ.selected_option,
-        explanation: (exam.status !== 'in_progress' || savedQ.selected_option) ? savedQ.explanation : undefined
-      },
+      question,
       examStatus: exam.status
     });
 
