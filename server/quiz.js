@@ -183,9 +183,9 @@ router.get('/exams/:examId/questions/:index', authenticateToken, async (req, res
           domain: q.domain,
           question: q.question_text,
           options: JSON.parse(q.options),
-          correct: exam.status !== 'in_progress' ? q.correct_option : undefined, // Hide correct answer if exam is active
+          correct: (exam.status !== 'in_progress' || q.selected_option) ? q.correct_option : undefined, // Hide correct answer if exam is active and unanswered
           selected_option: q.selected_option,
-          explanation: exam.status !== 'in_progress' ? q.explanation : undefined,
+          explanation: (exam.status !== 'in_progress' || q.selected_option) ? q.explanation : undefined,
           user_explanation: q.user_explanation,
           understanding_score: q.understanding_score,
           mentor_feedback: q.mentor_feedback
@@ -238,7 +238,15 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
     "D": "[Option D text]"
   },
   "correct": "[Correct option letter: A, B, C, or D]",
-  "explanation": "[Detailed explanation stating the correct answer and why it's correct, and also explaining why each incorrect option is wrong compared to the correct choice.]"
+  "explanation": {
+    "overall": "[Detailed explanation stating why the correct option is correct and summarizing the logic]",
+    "options": {
+      "A": "[Explanation for Option A, starting with 'Incorrect. ' or 'Correct. ' and detailing why it is incorrect or correct, including references if applicable]",
+      "B": "[Explanation for Option B, starting with 'Incorrect. ' or 'Correct. ' and detailing why it is incorrect or correct, including references if applicable]",
+      "C": "[Explanation for Option C, starting with 'Incorrect. ' or 'Correct. ' and detailing why it is incorrect or correct, including references if applicable]",
+      "D": "[Explanation for Option D, starting with 'Incorrect. ' or 'Correct. ' and detailing why it is incorrect or correct, including references if applicable]"
+    }
+  }
 }`;
 
     const completion = await groq.chat.completions.create({
@@ -262,6 +270,10 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
       return res.status(500).json({ error: 'Failed to parse question from AI' });
     }
 
+    const explanationValue = typeof questionData.explanation === 'object' 
+      ? JSON.stringify(questionData.explanation) 
+      : JSON.stringify({ overall: questionData.explanation || '', options: null });
+
     // Save generated question to DB
     const savedQ = await databases.createDocument(DB_ID, 'exam_questions', sdk.ID.unique(), {
       exam_id: examId,
@@ -271,7 +283,7 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
       options: JSON.stringify(questionData.options),
       correct_option: questionData.correct,
       selected_option: '', // unanswered initially
-      explanation: questionData.explanation,
+      explanation: explanationValue,
       user_explanation: '',
       understanding_score: 0,
       mentor_feedback: ''
@@ -284,9 +296,9 @@ Return ONLY JSON. Do not include markdown headers (like '---' or '#### Question'
         domain: savedQ.domain,
         question: savedQ.question_text,
         options: questionData.options,
-        correct: exam.status !== 'in_progress' ? savedQ.correct_option : undefined,
+        correct: (exam.status !== 'in_progress' || savedQ.selected_option) ? savedQ.correct_option : undefined,
         selected_option: savedQ.selected_option,
-        explanation: exam.status !== 'in_progress' ? savedQ.explanation : undefined
+        explanation: (exam.status !== 'in_progress' || savedQ.selected_option) ? savedQ.explanation : undefined
       },
       examStatus: exam.status
     });
@@ -328,7 +340,12 @@ router.post('/exams/:examId/questions/:index/answer', authenticateToken, async (
       selected_option: selectedOption
     });
 
-    res.json({ success: true, selected_option: updatedQ.selected_option });
+    res.json({ 
+      success: true, 
+      selected_option: updatedQ.selected_option,
+      correct: updatedQ.correct_option,
+      explanation: updatedQ.explanation
+    });
   } catch (err) {
     log('ERROR', `/exams/${examId}/questions/${index}/answer`, err.message);
     res.status(500).json({ error: 'Server error' });

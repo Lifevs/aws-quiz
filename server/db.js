@@ -263,7 +263,7 @@ const initDB = async () => {
       { key: 'options', type: 'string', size: 2000, required: false },
       { key: 'correct_option', type: 'string', size: 10, required: false },
       { key: 'selected_option', type: 'string', size: 10, required: false },
-      { key: 'explanation', type: 'string', size: 2500, required: false },
+      { key: 'explanation', type: 'string', size: 5000, required: false },
       { key: 'user_explanation', type: 'string', size: 2000, required: false },
       { key: 'understanding_score', type: 'integer', required: false, min: 0, max: 100, defaultValue: 0 },
       { key: 'mentor_feedback', type: 'string', size: 2500, required: false }

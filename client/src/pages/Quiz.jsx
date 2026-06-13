@@ -121,27 +121,61 @@ export default function Quiz() {
       });
   }, [currentIndex, exam, examId]);
 
+  // Safe helper to parse JSON explanation
+  const parseExplanation = (explanationStr) => {
+    if (!explanationStr) return null;
+    try {
+      const parsed = JSON.parse(explanationStr);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    } catch (e) {
+      // Ignore, fallback to plain text
+    }
+    return { overall: explanationStr, options: null };
+  };
+
   // Handle Answer Selection
-  const handleSelectOption = async (option) => {
+  const handleSelectOption = (option) => {
     if (!exam || exam.status !== 'in_progress') return;
+    const q = questions[currentIndex];
+    if (q && q.selected_option) return; // Answer already submitted and locked
 
     setSelectedAnswer(option);
-    
-    // Update local state dictionary
-    setQuestions(prev => {
-      const q = prev[currentIndex];
-      if (q) {
-        return { ...prev, [currentIndex]: { ...q, selected_option: option } };
-      }
-      return prev;
-    });
+  };
+
+  // Submit Answer for the current question
+  const handleSubmitAnswer = async () => {
+    if (!exam || exam.status !== 'in_progress') return;
+    if (!selectedAnswer) return;
+
+    const q = questions[currentIndex];
+    if (q && q.selected_option) return; // Already submitted
 
     try {
-      await api.post(`/quiz/exams/${examId}/questions/${currentIndex}/answer`, {
-        selectedOption: option
+      const res = await api.post(`/quiz/exams/${examId}/questions/${currentIndex}/answer`, {
+        selectedOption: selectedAnswer
+      });
+
+      // Update question state with returned correct option and explanation
+      setQuestions(prev => {
+        const currentQ = prev[currentIndex];
+        if (currentQ) {
+          return {
+            ...prev,
+            [currentIndex]: {
+              ...currentQ,
+              selected_option: selectedAnswer,
+              correct: res.data.correct,
+              explanation: res.data.explanation
+            }
+          };
+        }
+        return prev;
       });
     } catch (err) {
-      console.error('Failed to save answer:', err);
+      console.error('Failed to submit answer:', err);
+      alert('Failed to submit answer. Please try again.');
     }
   };
 
@@ -371,44 +405,180 @@ export default function Quiz() {
                 {questions[currentIndex].question}
               </p>
 
-              <div className="quiz-options" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              <div className="quiz-options" style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
                 {Object.entries(questions[currentIndex].options).map(([key, value]) => {
+                  const isQuestionSubmitted = !!questions[currentIndex].selected_option;
                   const isSelected = selectedAnswer === key;
+                  const correctOption = questions[currentIndex].correct;
+                  const isCorrect = correctOption === key;
+
+                  let border = '1px solid var(--border)';
+                  let background = 'var(--bg-secondary)';
+                  let labelBg = 'var(--border)';
+                  let icon = null;
+
+                  if (isQuestionSubmitted) {
+                    if (isCorrect) {
+                      border = '1px solid var(--accent-green)';
+                      background = 'rgba(0, 255, 136, 0.05)';
+                      labelBg = 'var(--accent-green)';
+                      icon = '✅';
+                    } else if (isSelected && !isCorrect) {
+                      border = '1px solid var(--accent-red)';
+                      background = 'rgba(255, 68, 68, 0.05)';
+                      labelBg = 'var(--accent-red)';
+                      icon = '❌';
+                    }
+                  } else {
+                    if (isSelected) {
+                      border = '1px solid var(--accent-orange)';
+                      background = 'rgba(255, 153, 0, 0.08)';
+                      labelBg = 'var(--accent-orange)';
+                    }
+                  }
+
+                  const explanationObj = parseExplanation(questions[currentIndex].explanation);
+                  const optionExplanation = explanationObj?.options?.[key];
+
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`quiz-option ${isSelected ? 'selected' : ''}`}
-                      onClick={() => handleSelectOption(key)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        textAlign: 'left',
-                        padding: '14px 16px',
-                        borderRadius: 10,
-                        border: `1px solid ${isSelected ? 'var(--accent-orange)' : 'var(--border)'}`,
-                        background: isSelected ? 'rgba(255,153,0,0.08)' : 'var(--bg-secondary)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        color: 'var(--text-primary)',
-                        gap: 12
-                      }}
-                    >
-                      <span className="label" style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        width: 24, height: 24, borderRadius: '50%',
-                        background: isSelected ? 'var(--accent-orange)' : 'var(--border)',
-                        color: isSelected ? '#000' : 'var(--text-secondary)',
-                        fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                        flexShrink: 0
-                      }}>{key}</span>
-                      <span style={{ fontSize: 13.5, lineHeight: 1.4 }}>{value}</span>
-                    </button>
+                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {isQuestionSubmitted ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            textAlign: 'left',
+                            padding: '14px 16px',
+                            borderRadius: 10,
+                            border,
+                            background,
+                            color: 'var(--text-primary)',
+                            gap: 12
+                          }}
+                        >
+                          <span className="label" style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: 24, height: 24, borderRadius: '50%',
+                            background: labelBg,
+                            color: '#000',
+                            fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                            flexShrink: 0
+                          }}>{key}</span>
+                          <span style={{ fontSize: 13.5, lineHeight: 1.4, flex: 1 }}>{value}</span>
+                          {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`quiz-option ${isSelected ? 'selected' : ''}`}
+                          onClick={() => handleSelectOption(key)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            textAlign: 'left',
+                            padding: '14px 16px',
+                            borderRadius: 10,
+                            border,
+                            background,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            color: 'var(--text-primary)',
+                            gap: 12
+                          }}
+                        >
+                          <span className="label" style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: 24, height: 24, borderRadius: '50%',
+                            background: labelBg,
+                            color: isSelected ? '#000' : 'var(--text-secondary)',
+                            fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                            flexShrink: 0
+                          }}>{key}</span>
+                          <span style={{ fontSize: 13.5, lineHeight: 1.4 }}>{value}</span>
+                        </button>
+                      )}
+
+                      {isQuestionSubmitted && optionExplanation && (
+                        <div style={{
+                          padding: '12px 16px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          background: 'rgba(255, 255, 255, 0.01)',
+                          borderLeft: `4px solid ${isCorrect ? 'var(--accent-green)' : 'var(--accent-red)'}`,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          color: 'var(--text-secondary)',
+                          marginLeft: 36,
+                          marginTop: 2,
+                          marginBottom: 8
+                        }}>
+                          {optionExplanation}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {/* Correctness Banner */}
+              {!!questions[currentIndex].selected_option && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '14px 18px',
+                  borderRadius: 10,
+                  background: questions[currentIndex].selected_option === questions[currentIndex].correct ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)',
+                  border: `1px solid ${questions[currentIndex].selected_option === questions[currentIndex].correct ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,68,0.2)'}`,
+                  marginTop: 20,
+                  marginBottom: 16,
+                  animation: 'fadeIn 0.3s ease'
+                }}>
+                  <span style={{ fontSize: 20 }}>{questions[currentIndex].selected_option === questions[currentIndex].correct ? '✅' : '❌'}</span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: questions[currentIndex].selected_option === questions[currentIndex].correct ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                      {questions[currentIndex].selected_option === questions[currentIndex].correct ? 'Correct' : 'Incorrect'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      Your Answer: <strong style={{ fontFamily: 'var(--font-mono)' }}>{questions[currentIndex].selected_option}</strong> &bull; Correct Answer: <strong style={{ fontFamily: 'var(--font-mono)' }}>{questions[currentIndex].correct}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Overall Explanation */}
+              {!!questions[currentIndex].selected_option && (
+                (() => {
+                  const expl = parseExplanation(questions[currentIndex].explanation);
+                  if (expl && expl.overall) {
+                    return (
+                      <div style={{
+                        marginTop: 20,
+                        padding: '16px 20px',
+                        borderRadius: 10,
+                        background: 'rgba(255, 153, 0, 0.02)',
+                        border: '1px solid var(--border)',
+                        borderLeft: '4px solid var(--accent-orange)',
+                        animation: 'fadeIn 0.3s ease',
+                        marginBottom: 20
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 16 }}>📖</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 800, color: 'var(--accent-orange)', letterSpacing: '0.05em' }}>
+                            OVERALL EXPLANATION
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                          {expl.overall}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <button
                   onClick={toggleFlag}
                   className="btn btn-ghost"
@@ -421,7 +591,7 @@ export default function Quiz() {
                   🚩 {flaggedQuestions[currentIndex] ? 'Flagged for Review' : 'Flag for Review'}
                 </button>
 
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <button
                     disabled={currentIndex === 0}
                     onClick={() => setCurrentIndex(prev => prev - 1)}
@@ -429,6 +599,18 @@ export default function Quiz() {
                   >
                     Previous
                   </button>
+
+                  {!questions[currentIndex].selected_option && (
+                    <button
+                      onClick={handleSubmitAnswer}
+                      disabled={!selectedAnswer}
+                      className="btn btn-primary"
+                      style={{ padding: '8px 20px', fontWeight: 700 }}
+                    >
+                      Submit Answer
+                    </button>
+                  )}
+
                   <button
                     disabled={currentIndex === exam.total_questions - 1}
                     onClick={() => setCurrentIndex(prev => prev + 1)}
@@ -625,53 +807,101 @@ export default function Quiz() {
                 {questions[currentIndex].question}
               </p>
 
-              <div className="quiz-options" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              <div className="quiz-options" style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
                 {Object.entries(questions[currentIndex].options).map(([key, value]) => {
                   const isSelected = selectedAnswer === key;
                   const isCorrect = questions[currentIndex].correct === key;
-                  
+
                   let border = '1px solid var(--border)';
                   let background = 'var(--bg-secondary)';
+                  let labelBg = 'var(--border)';
                   let icon = null;
 
                   if (isCorrect) {
                     border = '1px solid var(--accent-green)';
-                    background = 'rgba(0,255,136,0.08)';
+                    background = 'rgba(0, 255, 136, 0.05)';
+                    labelBg = 'var(--accent-green)';
                     icon = '✅';
                   } else if (isSelected && !isCorrect) {
                     border = '1px solid var(--accent-red)';
-                    background = 'rgba(255,68,68,0.08)';
+                    background = 'rgba(255, 68, 68, 0.05)';
+                    labelBg = 'var(--accent-red)';
                     icon = '❌';
                   }
 
+                  const explanationObj = parseExplanation(questions[currentIndex].explanation);
+                  const optionExplanation = explanationObj?.options?.[key];
+
                   return (
-                    <div
-                      key={key}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        textAlign: 'left',
-                        padding: '14px 16px',
-                        borderRadius: 10,
-                        border,
-                        background,
-                        color: 'var(--text-primary)',
-                        gap: 12
-                      }}
-                    >
-                      <span className="label" style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        width: 24, height: 24, borderRadius: '50%',
-                        background: isCorrect ? 'var(--accent-green)' : (isSelected ? 'var(--accent-red)' : 'var(--border)'),
-                        color: '#000',
-                        fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                        flexShrink: 0
-                      }}>{key}</span>
-                      <span style={{ fontSize: 13.5, lineHeight: 1.4, flex: 1 }}>{value}</span>
-                      {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
+                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          textAlign: 'left',
+                          padding: '14px 16px',
+                          borderRadius: 10,
+                          border,
+                          background,
+                          color: 'var(--text-primary)',
+                          gap: 12
+                        }}
+                      >
+                        <span className="label" style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 24, height: 24, borderRadius: '50%',
+                          background: labelBg,
+                          color: '#000',
+                          fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                          flexShrink: 0
+                        }}>{key}</span>
+                        <span style={{ fontSize: 13.5, lineHeight: 1.4, flex: 1 }}>{value}</span>
+                        {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
+                      </div>
+
+                      {optionExplanation && (
+                        <div style={{
+                          padding: '12px 16px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          background: 'rgba(255, 255, 255, 0.01)',
+                          borderLeft: `4px solid ${isCorrect ? 'var(--accent-green)' : 'var(--accent-red)'}`,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          color: 'var(--text-secondary)',
+                          marginLeft: 36,
+                          marginTop: 2,
+                          marginBottom: 8
+                        }}>
+                          {optionExplanation}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Correctness Banner */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '14px 18px',
+                borderRadius: 10,
+                background: questions[currentIndex].selected_option === questions[currentIndex].correct ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)',
+                border: `1px solid ${questions[currentIndex].selected_option === questions[currentIndex].correct ? 'rgba(0,255,136,0.2)' : 'rgba(255,68,68,0.2)'}`,
+                marginTop: 20,
+                marginBottom: 16
+              }}>
+                <span style={{ fontSize: 20 }}>{questions[currentIndex].selected_option === questions[currentIndex].correct ? '✅' : '❌'}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: questions[currentIndex].selected_option === questions[currentIndex].correct ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                    {questions[currentIndex].selected_option === questions[currentIndex].correct ? 'Correct' : 'Incorrect'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    Your Answer: <strong style={{ fontFamily: 'var(--font-mono)' }}>{questions[currentIndex].selected_option || 'None'}</strong> &bull; Correct Answer: <strong style={{ fontFamily: 'var(--font-mono)' }}>{questions[currentIndex].correct}</strong>
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
@@ -692,37 +922,46 @@ export default function Quiz() {
               </div>
 
               {/* AWS Skill Builder Explanation Sheet Style */}
-              {questions[currentIndex].explanation && (
-                <div style={{
-                  marginTop: 24,
-                  padding: '20px',
-                  borderRadius: 10,
-                  background: 'rgba(255, 153, 0, 0.03)',
-                  borderLeft: '4px solid var(--accent-orange)',
-                  animation: 'fadeIn 0.3s ease'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <span style={{ fontSize: 16 }}>📖</span>
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      color: 'var(--accent-orange)',
-                      letterSpacing: '0.05em'
+              {(() => {
+                const expl = parseExplanation(questions[currentIndex].explanation);
+                if (expl && expl.overall) {
+                  return (
+                    <div style={{
+                      marginTop: 24,
+                      padding: '20px',
+                      borderRadius: 10,
+                      background: 'rgba(255, 153, 0, 0.03)',
+                      borderLeft: '4px solid var(--accent-orange)',
+                      borderTop: '1px solid var(--border)',
+                      borderRight: '1px solid var(--border)',
+                      borderBottom: '1px solid var(--border)',
+                      animation: 'fadeIn 0.3s ease'
                     }}>
-                      OFFICIAL EXPLANATION
-                    </span>
-                  </div>
-                  <div style={{
-                    fontSize: 13.5,
-                    lineHeight: 1.6,
-                    color: 'var(--text-secondary)',
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {questions[currentIndex].explanation}
-                  </div>
-                </div>
-              )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <span style={{ fontSize: 16 }}>📖</span>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 12,
+                          fontWeight: 800,
+                          color: 'var(--accent-orange)',
+                          letterSpacing: '0.05em'
+                        }}>
+                          OFFICIAL EXPLANATION
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: 13.5,
+                        lineHeight: 1.6,
+                        color: 'var(--text-secondary)',
+                        whiteSpace: 'pre-wrap'
+                      }}>
+                        {expl.overall}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
           </div>
