@@ -216,13 +216,14 @@ router.get('/exams/:examId/questions/:index', authenticateToken, async (req, res
 
 ### Options construction
 - Provide exactly 4 options labeled A, B, C, and D.
+- **CRITICAL RELEVANCE REQUIREMENT**: Every single option (A, B, C, and D) MUST be customized and directly relevant to the specific technical context, constraints, and resources of the question's scenario. Do NOT generate generic options or options from unrelated AWS services. The options must represent 4 concrete alternative architectural designs or implementation steps to solve the exact problem posed in the scenario.
 - Exactly ONE option must be fully correct and aligned with AWS best practices and the Well-Architected Framework.
-- The THREE distractor options must be highly plausible. They MUST use real AWS terminology but represent one of the following flaw types:
+- The THREE distractor options must be highly plausible and directly related to the scenario. They MUST use real AWS terminology but represent one of the following flaw types:
   - Suboptimal architecture with unnecessary administrative overhead
   - Technically impossible combination
   - Service confusion
   - Fatal IAM or permission logic error
-  - Breaks a stated requirement
+  - Breaks a stated requirement in the scenario
 - Options must be roughly equal in length and detail so that option length does not hint at the correct answer.
 - If an option contains a JSON policy document, CLI command, or Python Boto3 code snippet, enclose it in a markdown triple-backtick code block with the appropriate language tag.
 
