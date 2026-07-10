@@ -17,6 +17,7 @@ export default function ExamCenter() {
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
+  const [importProgress, setImportProgress] = useState(null); // { saved, total }
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -42,16 +43,28 @@ export default function ExamCenter() {
     }
   };
 
+  // Count detected questions client-side for instant feedback (no server round-trip)
+  const detectedCount = importText.trim()
+    ? (importText.match(/QUESTION\s+\d+\s*\|/gi) || []).length
+    : 0;
+
   const handleImportQuiz = async () => {
-    if (!importText.trim()) return;
+    if (!importText.trim() || detectedCount === 0) return;
     setImporting(true);
     setImportError('');
+    setImportProgress(null);
     try {
+      // Server now batch-writes all questions and returns totalQuestions on success.
+      // If anything fails mid-way the server rolls back the exam doc (consistency > availability).
       const res = await api.post('/quiz/exams/import', { text: importText });
-      const examId = res.data.examId;
+      const { examId, totalQuestions } = res.data;
+      setImportProgress({ saved: totalQuestions, total: totalQuestions });
       navigate(`/exam/${examId}`);
     } catch (err) {
-      setImportError(err.response?.data?.error || 'Failed to import custom quiz. Please check the format.');
+      setImportError(
+        err.response?.data?.error ||
+        'Import failed — the server rolled back all changes. Please check the format and try again.'
+      );
       console.error(err);
     } finally {
       setImporting(false);
@@ -182,10 +195,26 @@ export default function ExamCenter() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-              AWS Quiz Pad (Text Import)
+              AWS Quiz Pad
+              {detectedCount > 0 && (
+                <span style={{
+                  marginLeft: 10,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--accent-cyan)',
+                  background: 'rgba(0,212,255,0.1)',
+                  border: '1px solid rgba(0,212,255,0.25)',
+                  borderRadius: 20,
+                  padding: '2px 10px'
+                }}>
+                  {detectedCount} {detectedCount === 1 ? 'Question' : 'Questions'} Ready
+                </span>
+              )}
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>
-              Paste practice exam questions in the markdown/text format below to convert them into an interactive simulation.
+              Paste practice exam questions below — no size limit. Questions are batch-written atomically;
+              if anything fails the server rolls back automatically.
             </p>
           </div>
           <button
@@ -208,9 +237,10 @@ export default function ExamCenter() {
         <textarea
           className="input"
           value={importText}
-          onChange={e => setImportText(e.target.value)}
-          placeholder={`# AWS DVA-C02 Practice Exam — 20 Questions\n\n---\n\nQUESTION 1 | Difficulty: Easy | Domain: Development with AWS Services | Subdomain: SQS Message Processing\n\nSCENARIO:\nA logistics company processes shipment status...\n\nQUESTION:\nThe developer needs to prevent duplicate message processing...\n\nA. Enable SQS long polling...\nB. The SQS visibility timeout (20 seconds) is shorter...\nC. Enable content-based...\nD. Increase the Lambda...\n\nCORRECT ANSWER: B\n\nWHY THIS IS CORRECT:\n...\n\nWHY THE OTHERS ARE WRONG:\n...`}
-          rows={10}
+          onChange={e => { setImportText(e.target.value); setImportError(''); }}
+          disabled={importing}
+          placeholder={`QUESTION 1 | Difficulty: Easy | Domain: Development with AWS Services | Subdomain: SQS Message Processing\n\nSCENARIO:\nA logistics company processes shipment status...\n\nQUESTION:\nThe developer needs to prevent duplicate message processing...\n\nA. Enable SQS long polling...\nB. The SQS visibility timeout (20 seconds) is shorter...\nC. Enable content-based...\nD. Increase the Lambda...\n\nCORRECT ANSWER: B\n\nWHY THIS IS CORRECT:\n...\n\nWHY THE OTHERS ARE WRONG:\n...`}
+          rows={12}
           style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 12,
@@ -218,18 +248,45 @@ export default function ExamCenter() {
             resize: 'vertical',
             marginTop: 8,
             marginBottom: 16,
-            background: 'rgba(255, 255, 255, 0.01)',
-            borderColor: 'var(--border)'
+            background: importing ? 'rgba(255,255,255,0.02)' : 'rgba(255, 255, 255, 0.01)',
+            borderColor: importing ? 'var(--accent-cyan)' : 'var(--border)',
+            opacity: importing ? 0.6 : 1,
+            cursor: importing ? 'not-allowed' : 'text',
+            transition: 'border-color 0.2s, opacity 0.2s'
           }}
         />
 
+        {/* Import status row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          {importing && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              fontSize: 13, color: 'var(--accent-cyan)'
+            }}>
+              <div style={{
+                width: 14, height: 14,
+                border: '2px solid rgba(0,212,255,0.3)',
+                borderTopColor: 'var(--accent-cyan)',
+                borderRadius: '50%',
+                animation: 'spin 0.7s linear infinite',
+                flexShrink: 0
+              }} />
+              Batch-writing questions to database…
+            </div>
+          )}
+        </div>
+
         <button
           onClick={handleImportQuiz}
-          disabled={importing || !importText.trim()}
+          disabled={importing || detectedCount === 0}
           className="btn btn-cyan"
-          style={{ width: '100%', padding: '12px', fontSize: 14, justifyContent: 'center' }}
+          style={{ width: '100%', padding: '12px', fontSize: 14, justifyContent: 'center', position: 'relative' }}
         >
-          {importing ? 'Processing & Importing Quiz...' : 'Import & Start Custom Simulation 🚀'}
+          {importing
+            ? `⏳ Importing ${detectedCount} Question${detectedCount !== 1 ? 's' : ''} — Please Wait…`
+            : detectedCount > 0
+              ? `⚡ Import & Start Quiz (${detectedCount} Questions)`
+              : '📋 Paste questions above to begin'}
         </button>
       </div>
 

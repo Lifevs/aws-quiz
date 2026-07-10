@@ -474,6 +474,40 @@ const parseQuizText = (text) => {
   return questions;
 };
 
+// --- Import helpers ---
+
+// Appwrite attribute limit for explanation field is 5000 chars.
+// We keep a safe buffer of 200 chars and truncate anything beyond 4800.
+const EXPLANATION_MAX_CHARS = 4800;
+const truncateExplanation = (raw) => {
+  if (!raw || typeof raw !== 'string') return '';
+  if (raw.length <= EXPLANATION_MAX_CHARS) return raw;
+  return raw.slice(0, EXPLANATION_MAX_CHARS) + '… [truncated]';
+};
+
+// Write questions in parallel batches of BATCH_SIZE while preserving insertion order.
+// Throws immediately if any write fails so the caller can rollback.
+const IMPORT_BATCH_SIZE = 5;
+const writeQuestionBatch = async (examId, batch) => {
+  await Promise.all(
+    batch.map((q) =>
+      databases.createDocument(DB_ID, 'exam_questions', sdk.ID.unique(), {
+        exam_id: examId,
+        question_index: q.question_index,
+        domain: q.domain,
+        question_text: q.question_text,
+        options: q.options,
+        correct_option: q.correct_option,
+        selected_option: '',
+        explanation: truncateExplanation(q.explanation),
+        user_explanation: '',
+        understanding_score: 0,
+        mentor_feedback: ''
+      })
+    )
+  );
+};
+
 // 3. Import a custom quiz from text pad
 router.post('/exams/import', authenticateToken, async (req, res) => {
   const { text } = req.body;
@@ -483,22 +517,20 @@ router.post('/exams/import', authenticateToken, async (req, res) => {
 
   log('POST', '/exams/import', `User: ${req.user.id}, Text length: ${text.length}`);
 
+  let exam = null; // hold reference for rollback
+
   try {
     const parsedQuestions = parseQuizText(text);
     if (parsedQuestions.length === 0) {
       return res.status(400).json({ error: 'Could not parse any valid questions from the provided text. Make sure it contains "QUESTION X" headers.' });
     }
 
-    // Sort questions by question_index to make sure they are in order
+    // ── 1. Sort and normalise indices so order is always guaranteed ──────────
     parsedQuestions.sort((a, b) => a.question_index - b.question_index);
+    parsedQuestions.forEach((q, i) => { q.question_index = i; });
 
-    // Normalize question indices to be sequential starting from 0
-    parsedQuestions.forEach((q, i) => {
-      q.question_index = i;
-    });
-
-    // Create the exam document in Appwrite
-    const exam = await databases.createDocument(DB_ID, 'exams', sdk.ID.unique(), {
+    // ── 2. Create the exam document (anchor for consistency) ─────────────────
+    exam = await databases.createDocument(DB_ID, 'exams', sdk.ID.unique(), {
       user_id: String(req.user.id),
       score: 0,
       status: 'in_progress',
@@ -508,27 +540,34 @@ router.post('/exams/import', authenticateToken, async (req, res) => {
       created_at: new Date().toISOString()
     });
 
-    // Save all the parsed questions into Appwrite in batches to avoid API rate limits
-    for (const q of parsedQuestions) {
-      await databases.createDocument(DB_ID, 'exam_questions', sdk.ID.unique(), {
-        exam_id: exam.$id,
-        question_index: q.question_index,
-        domain: q.domain,
-        question_text: q.question_text,
-        options: q.options,
-        correct_option: q.correct_option,
-        selected_option: '',
-        explanation: q.explanation,
-        user_explanation: '',
-        understanding_score: 0,
-        mentor_feedback: ''
-      });
+    log('POST', '/exams/import', `Exam created: ${exam.$id}. Writing ${parsedQuestions.length} questions in batches of ${IMPORT_BATCH_SIZE}...`);
+
+    // ── 3. Batch-write all questions — parallel within batch, sequential across
+    //       batches so order is preserved and Appwrite rate-limits are respected.
+    //       Tight coupling: any failure aborts and triggers full rollback. ─────
+    for (let i = 0; i < parsedQuestions.length; i += IMPORT_BATCH_SIZE) {
+      const batch = parsedQuestions.slice(i, i + IMPORT_BATCH_SIZE);
+      log('POST', '/exams/import', `Writing batch ${Math.floor(i / IMPORT_BATCH_SIZE) + 1}/${Math.ceil(parsedQuestions.length / IMPORT_BATCH_SIZE)} (indices ${i}–${i + batch.length - 1})`);
+      await writeQuestionBatch(exam.$id, batch);
     }
 
-    res.json({ success: true, examId: exam.$id });
+    log('POST', '/exams/import', `All ${parsedQuestions.length} questions saved for exam ${exam.$id}`);
+    res.json({ success: true, examId: exam.$id, totalQuestions: parsedQuestions.length });
+
   } catch (err) {
     log('ERROR', '/exams/import', err.stack);
-    res.status(500).json({ error: 'Failed to import custom exam: ' + err.message });
+
+    // ── Rollback: delete the exam document so the DB stays consistent ────────
+    if (exam?.$id) {
+      try {
+        await databases.deleteDocument(DB_ID, 'exams', exam.$id);
+        log('ROLLBACK', '/exams/import', `Rolled back exam ${exam.$id} after write failure`);
+      } catch (rollbackErr) {
+        log('ROLLBACK_ERR', '/exams/import', `Failed to rollback exam ${exam.$id}: ${rollbackErr.message}`);
+      }
+    }
+
+    res.status(500).json({ error: 'Failed to import quiz — all changes have been rolled back. Please try again.' });
   }
 });
 
