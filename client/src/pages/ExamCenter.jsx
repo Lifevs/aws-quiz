@@ -14,6 +14,9 @@ export default function ExamCenter() {
   const [loading, setLoading] = useState(true);
   const [selectedQuestions, setSelectedQuestions] = useState(65);
   const [starting, setStarting] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -36,6 +39,22 @@ export default function ExamCenter() {
       console.error(err);
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleImportQuiz = async () => {
+    if (!importText.trim()) return;
+    setImporting(true);
+    setImportError('');
+    try {
+      const res = await api.post('/quiz/exams/import', { text: importText });
+      const examId = res.data.examId;
+      navigate(`/exam/${examId}`);
+    } catch (err) {
+      setImportError(err.response?.data?.error || 'Failed to import custom quiz. Please check the format.');
+      console.error(err);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -156,6 +175,62 @@ export default function ExamCenter() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Quiz Pad Text Import Card */}
+      <div className="card" style={{ padding: '24px', marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+              AWS Quiz Pad (Text Import)
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>
+              Paste practice exam questions in the markdown/text format below to convert them into an interactive simulation.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setImportText(`# AWS DVA-C02 Practice Exam — Sample\n\n---\n\nQUESTION 1 | Difficulty: Easy | Domain: Development with AWS Services | Subdomain: SQS Message Processing\n\nSCENARIO:\nA logistics company, FreightPath Inc., processes shipment status updates using an SQS Standard queue. Their consumer Lambda function (512 MB, 30-second timeout) polls the queue and updates a DynamoDB table. The team has set the SQS visibility timeout to 20 seconds. During peak hours, the team notices the same shipment update is being written to DynamoDB multiple times, causing data integrity issues.\n\nQUESTION:\nThe developer needs to prevent duplicate message processing. What is the MOST likely root cause and the correct fix?\n\nA. Enable SQS long polling by setting ReceiveMessageWaitTimeSeconds to 20 seconds to reduce duplicate receives.\nB. The SQS visibility timeout (20 seconds) is shorter than the maximum Lambda processing time (28 seconds), causing messages to become visible again before processing completes. Increase the visibility timeout to at least 35 seconds.\nC. Enable content-based deduplication on the SQS Standard queue to prevent duplicate message delivery.\nD. Increase the Lambda reserved concurrency to match the number of SQS partitions to prevent concurrent duplicate processing.\n\nCORRECT ANSWER: B\n\nWHY THIS IS CORRECT:\nThe SQS visibility timeout defines how long a message remains invisible to other consumers after being received. If Lambda takes 28 seconds but the visibility timeout is only 20 seconds, the message becomes visible again before Lambda finishes processing.\n\nWHY THE OTHERS ARE WRONG:\nA. Long polling reduces empty receives and API costs but has zero effect on duplicate processing.\nC. Content-based deduplication is only available on SQS FIFO queues.\nD. SQS Standard queues have no concept of partitions.`);
+            }}
+            className="btn btn-ghost"
+            style={{ fontSize: 12, padding: '6px 12px' }}
+          >
+            📋 Load Sample Format
+          </button>
+        </div>
+
+        {importError && (
+          <div style={{ color: 'var(--accent-red)', fontSize: 13, marginBottom: 12, padding: '8px 12px', background: 'rgba(255, 68, 68, 0.08)', borderRadius: 6, border: '1px solid rgba(255, 68, 68, 0.2)' }}>
+            ⚠️ {importError}
+          </div>
+        )}
+
+        <textarea
+          className="input"
+          value={importText}
+          onChange={e => setImportText(e.target.value)}
+          placeholder={`# AWS DVA-C02 Practice Exam — 20 Questions\n\n---\n\nQUESTION 1 | Difficulty: Easy | Domain: Development with AWS Services | Subdomain: SQS Message Processing\n\nSCENARIO:\nA logistics company processes shipment status...\n\nQUESTION:\nThe developer needs to prevent duplicate message processing...\n\nA. Enable SQS long polling...\nB. The SQS visibility timeout (20 seconds) is shorter...\nC. Enable content-based...\nD. Increase the Lambda...\n\nCORRECT ANSWER: B\n\nWHY THIS IS CORRECT:\n...\n\nWHY THE OTHERS ARE WRONG:\n...`}
+          rows={10}
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            lineHeight: 1.5,
+            resize: 'vertical',
+            marginTop: 8,
+            marginBottom: 16,
+            background: 'rgba(255, 255, 255, 0.01)',
+            borderColor: 'var(--border)'
+          }}
+        />
+
+        <button
+          onClick={handleImportQuiz}
+          disabled={importing || !importText.trim()}
+          className="btn btn-cyan"
+          style={{ width: '100%', padding: '12px', fontSize: 14, justifyContent: 'center' }}
+        >
+          {importing ? 'Processing & Importing Quiz...' : 'Import & Start Custom Simulation 🚀'}
+        </button>
       </div>
 
       {/* Past attempts list */}

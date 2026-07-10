@@ -2,6 +2,54 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../context/AuthContext';
 
+const Speedometer = ({ score, pulse }) => {
+  const radius = 54;
+  const strokeWidth = 8;
+  const circumference = 2 * Math.PI * radius;
+  const displayScore = score !== null ? score : 0;
+  const offset = circumference - (displayScore / 100) * circumference;
+  
+  let strokeColor = 'var(--accent-red)';
+  if (displayScore >= 75) strokeColor = 'var(--accent-green)';
+  else if (displayScore >= 50) strokeColor = 'var(--accent-orange)';
+  else if (displayScore >= 25) strokeColor = 'var(--accent-cyan)';
+  
+  return (
+    <div className="speedometer-container" style={{ width: 140, height: 140, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+      <svg width="130" height="130" style={{ transform: 'rotate(-90deg)' }}>
+        <circle
+          cx="65"
+          cy="65"
+          r={radius}
+          fill="transparent"
+          stroke="var(--border)"
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx="65"
+          cy="65"
+          r={radius}
+          fill="transparent"
+          stroke={pulse ? 'var(--accent-cyan)' : strokeColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={pulse ? circumference * 0.4 : offset}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.5s ease' }}
+        />
+      </svg>
+      <div className="speedometer-score" style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', left: '50%', transform: 'translateX(-50%)', bottom: 35 }}>
+        <span className="speedometer-score-val" style={{ color: pulse ? 'var(--accent-cyan)' : strokeColor, fontSize: '1.8rem', fontWeight: 800, fontFamily: 'var(--font-display)' }}>
+          {pulse ? '--' : `${displayScore}%`}
+        </span>
+        <span className="speedometer-score-label" style={{ fontSize: '7.5px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2, letterSpacing: '0.05em' }}>
+          UNDERSTANDING
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export default function Quiz() {
   const { examId } = useParams();
   const navigate = useNavigate();
@@ -23,7 +71,25 @@ export default function Quiz() {
   const [selectedAnswer, setSelectedAnswer] = useState('');
   const [flaggedQuestions, setFlaggedQuestions] = useState({}); // { [index]: true }
 
-  // Review state
+  // AI Mentor Evaluation State
+  const [userExplanation, setUserExplanation] = useState('');
+  const [evaluating, setEvaluating] = useState(false);
+  const [evaluationFeedback, setEvaluationFeedback] = useState('');
+  const [evaluationScore, setEvaluationScore] = useState(null);
+
+  // Sync evaluation state when question index or database data changes
+  useEffect(() => {
+    const q = questions[currentIndex];
+    if (q) {
+      setUserExplanation(q.user_explanation || '');
+      setEvaluationFeedback(q.mentor_feedback || '');
+      setEvaluationScore(q.understanding_score !== undefined && q.understanding_score !== null && q.understanding_score > 0 ? q.understanding_score : null);
+    } else {
+      setUserExplanation('');
+      setEvaluationFeedback('');
+      setEvaluationScore(null);
+    }
+  }, [currentIndex, questions]);
 
   // Load exam and initial questions
   const fetchExam = useCallback(async () => {
@@ -220,6 +286,109 @@ export default function Quiz() {
   };
 
 
+
+  const handleEvaluateExplanation = async () => {
+    if (!userExplanation.trim()) return;
+
+    setEvaluating(true);
+    setEvaluationFeedback('');
+    setEvaluationScore(null);
+
+    try {
+      const response = await fetch(`/api/quiz/exams/${examId}/questions/${currentIndex}/evaluate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ userExplanation })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get evaluation feedback from mentor.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let done = false;
+      let streamedText = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done });
+          streamedText += chunk;
+          
+          // Parse score dynamically if present
+          const scoreMatch = streamedText.match(/\[\[SCORE:\s*(\d+)\]\]/);
+          let displayScore = null;
+          let cleanText = streamedText;
+          if (scoreMatch) {
+            displayScore = parseInt(scoreMatch[1], 10);
+            cleanText = cleanText.replace(/\[\[SCORE:\s*\d+\]\]/, '').trim();
+          }
+
+          setEvaluationFeedback(cleanText);
+          if (displayScore !== null) {
+            setEvaluationScore(displayScore);
+          }
+        }
+      }
+
+      // Final score check
+      const scoreMatch = streamedText.match(/\[\[SCORE:\s*(\d+)\]\]/);
+      let finalScore = 0;
+      let finalCleanText = streamedText;
+      if (scoreMatch) {
+        finalScore = parseInt(scoreMatch[1], 10);
+        finalCleanText = finalCleanText.replace(/\[\[SCORE:\s*\d+\]\]/, '').trim();
+      }
+
+      // Save to local state
+      setQuestions(prev => {
+        const currentQ = prev[currentIndex];
+        if (currentQ) {
+          return {
+            ...prev,
+            [currentIndex]: {
+              ...currentQ,
+              user_explanation: userExplanation,
+              understanding_score: finalScore,
+              mentor_feedback: finalCleanText
+            }
+          };
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Error during evaluation: ' + err.message);
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
+  const handleClearEvaluation = () => {
+    setQuestions(prev => {
+      const currentQ = prev[currentIndex];
+      if (currentQ) {
+        return {
+          ...prev,
+          [currentIndex]: {
+            ...currentQ,
+            user_explanation: '',
+            understanding_score: 0,
+            mentor_feedback: ''
+          }
+        };
+      }
+      return prev;
+    });
+    setUserExplanation('');
+    setEvaluationFeedback('');
+    setEvaluationScore(null);
+  };
 
   // Helper formatting functions
   const formatTime = (secs) => {
@@ -962,6 +1131,67 @@ export default function Quiz() {
                 }
                 return null;
               })()}
+
+              {/* AI Mentor Assessment Section */}
+              <div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 24 }}>
+                <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>🤖</span> AI Mentor Concept Evaluation
+                </h4>
+                
+                {!evaluationFeedback && !evaluating ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
+                      Test your architectural reasoning! Explain in your own words why your selected option is correct or analyze the trade-offs of the distractors. The AI Mentor will evaluate your conceptual understanding.
+                    </p>
+                    <textarea
+                      className="quiz-explanation-input"
+                      value={userExplanation}
+                      onChange={e => setUserExplanation(e.target.value)}
+                      placeholder="Type your detailed explanation or reasoning for this question..."
+                      style={{ margin: 0 }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={handleEvaluateExplanation}
+                        disabled={!userExplanation.trim()}
+                        className="btn btn-cyan"
+                        style={{ padding: '10px 20px', fontSize: 13 }}
+                      >
+                        Ask AI Mentor to Evaluate ⚡
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="evaluation-board" style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      {/* Left: Speedometer Gauge */}
+                      <Speedometer score={evaluationScore} pulse={evaluating && evaluationScore === null} />
+                      
+                      {/* Right: Detailed feedback analysis */}
+                      <div style={{ flex: 1, minWidth: 280 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>
+                            {evaluating ? '🔄 EVALUATING THOUGHT PROCESS...' : '✅ EVALUATION COMPLETE'}
+                          </span>
+                          {!evaluating && (
+                            <button
+                              onClick={handleClearEvaluation}
+                              className="btn btn-ghost"
+                              style={{ fontSize: 11, padding: '4px 10px', height: 'auto' }}
+                            >
+                              Redo Explanation
+                            </button>
+                          )}
+                        </div>
+                        
+                        <div className={`evaluation-analysis ${evaluating ? 'typing-cursor' : ''}`} style={{ fontSize: 13, lineHeight: 1.6 }}>
+                          {evaluationFeedback || 'Preparing concept evaluation...'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
           </div>

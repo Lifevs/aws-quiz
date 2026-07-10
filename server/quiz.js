@@ -281,7 +281,258 @@ router.post('/exams/start', authenticateToken, async (req, res) => {
   }
 });
 
-// 3. Get list of user exams
+// Custom Quiz Import Parser
+const parseQuizText = (text) => {
+  const questions = [];
+  const regex = /QUESTION\s+(\d+)\s*\|/gi;
+  let match;
+  const positions = [];
+  
+  while ((match = regex.exec(text)) !== null) {
+    positions.push({
+      index: match.index,
+      number: match[1]
+    });
+  }
+  
+  if (positions.length === 0) {
+    return [];
+  }
+  
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i].index;
+    const end = (i + 1 < positions.length) ? positions[i + 1].index : text.length;
+    const part = text.substring(start, end).trim();
+    
+    const lines = part.split('\n');
+    const headerLine = lines[0];
+    
+    const headerMatch = headerLine.match(/QUESTION\s+(\d+)\s*\|\s*Difficulty:\s*([^|]+?)(?:\s*\|\s*Domain:\s*([^|]+?))?(?:\s*\|\s*Subdomain:\s*(.+))?$/i);
+    
+    let qNum = parseInt(positions[i].number) - 1;
+    let difficulty = 'Medium';
+    let domain = 'General';
+    let subdomain = '';
+    
+    if (headerMatch) {
+      qNum = parseInt(headerMatch[1]) - 1;
+      difficulty = headerMatch[2].trim();
+      domain = headerMatch[3] ? headerMatch[3].trim() : 'General';
+      subdomain = headerMatch[4] ? headerMatch[4].trim() : '';
+    }
+    
+    const bodyText = lines.slice(1).join('\n');
+    
+    let scenario = '';
+    let questionPrompt = '';
+    
+    const scenarioMatch = bodyText.match(/SCENARIO:\s*([\s\S]*?)(?=QUESTION:)/i);
+    const questionPromptMatch = bodyText.match(/QUESTION:\s*([\s\S]*?)(?=\b[A-D]\.\s)/i);
+    
+    if (scenarioMatch && questionPromptMatch) {
+      scenario = scenarioMatch[1].trim();
+      questionPrompt = questionPromptMatch[1].trim();
+    } else {
+      const fallbackPromptMatch = bodyText.match(/^([\s\S]*?)(?=\b[A-D]\.\s)/i);
+      if (fallbackPromptMatch) {
+        questionPrompt = fallbackPromptMatch[1].trim();
+      } else {
+        questionPrompt = bodyText;
+      }
+    }
+    
+    const questionText = scenario 
+      ? `SCENARIO:\n${scenario}\n\nQUESTION:\n${questionPrompt}`
+      : questionPrompt;
+      
+    const options = {};
+    const optAMatch = bodyText.match(/\bA\.\s+([\s\S]*?)(?=\bB\.\s+)/i);
+    const optBMatch = bodyText.match(/\bB\.\s+([\s\S]*?)(?=\bC\.\s+)/i);
+    const optCMatch = bodyText.match(/\bC\.\s+([\s\S]*?)(?=\bD\.\s+)/i);
+    const optDMatch = bodyText.match(/\bD\.\s+([\s\S]*?)(?=\bCORRECT\b)/i);
+    
+    if (optAMatch) options['A'] = optAMatch[1].trim();
+    if (optBMatch) options['B'] = optBMatch[1].trim();
+    if (optCMatch) options['C'] = optCMatch[1].trim();
+    if (optDMatch) {
+      options['D'] = optDMatch[1].trim();
+    } else {
+      const optDMatchFallback = bodyText.match(/\bD\.\s+([\s\S]*?)(?=\n\s*\n|\bWHY THIS IS CORRECT\b|$)/i);
+      if (optDMatchFallback) options['D'] = optDMatchFallback[1].trim();
+    }
+    
+    // Line-by-line fallback if options are empty
+    if (!options['A'] || !options['B']) {
+      let currentKey = null;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const optMatch = trimmed.match(/^([A-D])\.\s+(.+)$/i);
+        if (optMatch) {
+          currentKey = optMatch[1].toUpperCase();
+          options[currentKey] = optMatch[2].trim();
+        } else if (currentKey && trimmed && !trimmed.startsWith('QUESTION') && !trimmed.startsWith('CORRECT')) {
+          options[currentKey] += '\n' + trimmed;
+        } else if (trimmed.startsWith('CORRECT')) {
+          currentKey = null;
+        }
+      }
+    }
+    
+    let correctOption = 'A';
+    const correctMatch = bodyText.match(/CORRECT(?: ANSWER)?:\s*([A-D])/i);
+    if (correctMatch) {
+      correctOption = correctMatch[1].trim().toUpperCase();
+    }
+    
+    let whyCorrect = '';
+    const whyCorrectMatch = bodyText.match(/WHY THIS IS CORRECT:\s*([\s\S]*?)(?=WHY THE OTHERS ARE WRONG:|EXAM TRICK:|GOLD JACKET INSIGHT:|MEMORY HOOK:|$)/i);
+    if (whyCorrectMatch) {
+      whyCorrect = whyCorrectMatch[1].trim();
+    }
+    
+    let whyWrong = '';
+    const whyWrongMatch = bodyText.match(/WHY THE OTHERS ARE WRONG:\s*([\s\S]*?)(?=EXAM TRICK:|GOLD JACKET INSIGHT:|MEMORY HOOK:|$)/i);
+    if (whyWrongMatch) {
+      whyWrong = whyWrongMatch[1].trim();
+    }
+    
+    let examTrick = '';
+    const examTrickMatch = bodyText.match(/EXAM TRICK:\s*([\s\S]*?)(?=GOLD JACKET INSIGHT:|MEMORY HOOK:|$)/i);
+    if (examTrickMatch) {
+      examTrick = examTrickMatch[1].trim();
+    }
+    
+    let goldJacket = '';
+    const goldJacketMatch = bodyText.match(/GOLD JACKET INSIGHT:\s*([\s\S]*?)(?=MEMORY HOOK:|$)/i);
+    if (goldJacketMatch) {
+      goldJacket = goldJacketMatch[1].trim();
+    }
+    
+    let memoryHook = '';
+    const memoryHookMatch = bodyText.match(/MEMORY HOOK:\s*([\s\S]*?)$/i);
+    if (memoryHookMatch) {
+      memoryHook = memoryHookMatch[1].trim();
+    }
+    
+    const optionsExplanations = {};
+    if (correctOption && whyCorrect) {
+      optionsExplanations[correctOption] = `Correct. ${whyCorrect}`;
+    }
+    
+    if (whyWrong) {
+      const wrongKeys = ['A', 'B', 'C', 'D'].filter(k => k !== correctOption);
+      for (const k of wrongKeys) {
+        const regex = new RegExp(`\\b${k}\\.\\s*([\\s\\S]*?)(?=\\b[A-D]\\.\\s|$)`, 'i');
+        const match = whyWrong.match(regex);
+        if (match) {
+          optionsExplanations[k] = `Incorrect. ${match[1].trim()}`;
+        }
+      }
+    }
+    
+    let overallExplanation = '';
+    if (whyCorrect) {
+      overallExplanation += `### WHY THIS IS CORRECT:\n${whyCorrect}\n\n`;
+    }
+    if (whyWrong) {
+      overallExplanation += `### WHY THE OTHERS ARE WRONG:\n${whyWrong}\n\n`;
+    }
+    if (examTrick) {
+      overallExplanation += `### EXAM TRICK:\n${examTrick}\n\n`;
+    }
+    if (goldJacket) {
+      overallExplanation += `### GOLD JACKET INSIGHT:\n${goldJacket}\n\n`;
+    }
+    if (memoryHook) {
+      overallExplanation += `### MEMORY HOOK:\n${memoryHook}\n`;
+    }
+    overallExplanation = overallExplanation.trim();
+    
+    if (!overallExplanation) {
+      const fallbackExplMatch = bodyText.match(/CORRECT(?: ANSWER)?:\s*[A-D]\s*([\s\S]*)$/i);
+      if (fallbackExplMatch) {
+        overallExplanation = fallbackExplMatch[1].trim();
+      }
+    }
+    
+    const explanationJson = {
+      overall: overallExplanation,
+      options: optionsExplanations
+    };
+    
+    questions.push({
+      question_index: qNum,
+      domain: `${domain}${subdomain ? ' — ' + subdomain : ''}`,
+      question_text: questionText,
+      options: JSON.stringify(options),
+      correct_option: correctOption,
+      explanation: JSON.stringify(explanationJson),
+      difficulty: difficulty
+    });
+  }
+  
+  return questions;
+};
+
+// 3. Import a custom quiz from text pad
+router.post('/exams/import', authenticateToken, async (req, res) => {
+  const { text } = req.body;
+  if (!text) {
+    return res.status(400).json({ error: 'Text content is required' });
+  }
+
+  log('POST', '/exams/import', `User: ${req.user.id}, Text length: ${text.length}`);
+
+  try {
+    const parsedQuestions = parseQuizText(text);
+    if (parsedQuestions.length === 0) {
+      return res.status(400).json({ error: 'Could not parse any valid questions from the provided text. Make sure it contains "QUESTION X" headers.' });
+    }
+
+    // Sort questions by question_index to make sure they are in order
+    parsedQuestions.sort((a, b) => a.question_index - b.question_index);
+
+    // Normalize question indices to be sequential starting from 0
+    parsedQuestions.forEach((q, i) => {
+      q.question_index = i;
+    });
+
+    // Create the exam document in Appwrite
+    const exam = await databases.createDocument(DB_ID, 'exams', sdk.ID.unique(), {
+      user_id: String(req.user.id),
+      score: 0,
+      status: 'in_progress',
+      time_taken: 0,
+      total_questions: parsedQuestions.length,
+      correct_answers: 0,
+      created_at: new Date().toISOString()
+    });
+
+    // Save all the parsed questions into Appwrite in batches to avoid API rate limits
+    for (const q of parsedQuestions) {
+      await databases.createDocument(DB_ID, 'exam_questions', sdk.ID.unique(), {
+        exam_id: exam.$id,
+        question_index: q.question_index,
+        domain: q.domain,
+        question_text: q.question_text,
+        options: q.options,
+        correct_option: q.correct_option,
+        selected_option: '',
+        explanation: q.explanation,
+        user_explanation: '',
+        understanding_score: 0,
+        mentor_feedback: ''
+      });
+    }
+
+    res.json({ success: true, examId: exam.$id });
+  } catch (err) {
+    log('ERROR', '/exams/import', err.stack);
+    res.status(500).json({ error: 'Failed to import custom exam: ' + err.message });
+  }
+});
+
+// 4. Get list of user exams
 router.get('/exams', authenticateToken, async (req, res) => {
   log('GET', '/exams', `User: ${req.user.id}`);
   try {
